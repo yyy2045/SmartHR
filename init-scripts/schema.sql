@@ -112,14 +112,21 @@ CREATE TABLE IF NOT EXISTS interview_reports (
 CREATE TABLE IF NOT EXISTS knowledge_documents (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     document_id VARCHAR(100) UNIQUE NOT NULL,
-    filename VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    filename VARCHAR(255),
     file_path VARCHAR(500),
+    doc_type VARCHAR(50) DEFAULT 'OTHER',  -- POLICY, MANUAL, HISTORY, OTHER
     file_type VARCHAR(50),  -- PDF, DOCX, TXT
+    indexed_status VARCHAR(50) DEFAULT 'PENDING',  -- PENDING, INDEXED, FAILED
+    chunks INT DEFAULT 0,
+    chunk_ids JSON,  -- JSON array of chunk IDs
     company_id BIGINT,
-    total_chunks INT,
+    metadata JSON,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_document_id (document_id),
     INDEX idx_company_id (company_id),
+    INDEX idx_doc_type (doc_type),
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 

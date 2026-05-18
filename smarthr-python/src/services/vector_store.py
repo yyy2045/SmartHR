@@ -46,7 +46,7 @@ class VectorStoreService:
         collection_name: str,
         query_embedding: List[float],
         top_k: int = 5,
-        filter_metadata: Optional[Dict] = None
+        filters: Optional[Dict] = None
     ) -> List[Dict[str, Any]]:
         """Search similar documents"""
         collection = self.client.get_collection(collection_name)
@@ -54,7 +54,7 @@ class VectorStoreService:
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
-            where=filter_metadata
+            where=filters
         )
 
         return [
@@ -66,6 +66,28 @@ class VectorStoreService:
             }
             for i in range(len(results["ids"][0]))
         ]
+
+    def delete(self, collection_name: str, ids: List[str]):
+        """Delete documents from collection"""
+        collection = self.client.get_collection(collection_name)
+        collection.delete(ids=ids)
+
+    def update(
+        self,
+        collection_name: str,
+        ids: List[str],
+        documents: Optional[List[str]] = None,
+        embeddings: Optional[List[List[float]]] = None,
+        metadata: Optional[List[Dict]] = None
+    ):
+        """Update documents in collection"""
+        collection = self.client.get_collection(collection_name)
+        collection.update(
+            ids=ids,
+            documents=documents,
+            embeddings=embeddings,
+            metadatas=metadata
+        )
 
     def delete_collection(self, name: str):
         """Delete a collection"""

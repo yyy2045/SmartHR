@@ -1,179 +1,300 @@
 """
-Interview API - Multi-agent interview system
+Interview API - Multi-agent interview system with LangGraph
 """
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
+import json
 
-router = APIRouter()
+from src.agents.interview_graph import get_interview_graph
+from src.services.interview_state_manager import interview_state_manager
 
-class InterviewStartRequest(BaseModel):
+router = APIRouter(prefix="/interview", tags=["interview"])
+
+
+# Request/Response Models
+class CreateSessionRequest(BaseModel):
     job_id: str
     resume_id: str
     company_id: Optional[str] = None
+    job_description: Optional[str] = None
+    resume_text: Optional[str] = None
 
-class InterviewAnswerRequest(BaseModel):
+
+class SendMessageRequest(BaseModel):
+    message: str
+
+
+class QuestionResponse(BaseModel):
     session_id: str
-    answer: str
+    status: str
+    question: Optional[Dict[str, Any]] = None
+    is_complete: bool = False
+    message: Optional[str] = None
 
-class InterviewQuestion(BaseModel):
-    question: str
-    question_type: str  # TECHNICAL, BEHAVIORAL, EXPERIENCE
-    expected_skills: List[str] = []
 
-class InterviewState(BaseModel):
+class ReportResponse(BaseModel):
     session_id: str
-    status: str  # IN_PROGRESS, COMPLETED
-    current_question: Optional[InterviewQuestion] = None
-    questions_asked: int = 0
-    answers: List[Dict[str, str]] = []
+    overall_score: float
+    skill_score: float
+    behavior_score: float
+    recommendation: str
+    summary: str
+    strengths: List[str]
+    concerns: List[str]
+    interview_highlights: List[str]
 
-@router.post("/start")
-async def start_interview(request: InterviewStartRequest):
-    """
-    Start a new interview session
-    Returns the first question from the main interviewer agent
-    """
-    from src.services.llm_service import llm_service
-    from src.services.redis_service import redis_service
 
+@router.post("/sessions", response_model=QuestionResponse)
+async def create_session(request: CreateSessionRequest):
+    """
+    Create a new interview session and return the first question.
+    """
     session_id = str(uuid.uuid4())
 
-    # Store initial state in Redis
-    state = {
+    # Initialize state
+    initial_state = {
         "session_id": session_id,
         "job_id": request.job_id,
         "resume_id": request.resume_id,
         "company_id": request.company_id,
-        "status": "IN_PROGRESS",
+        "current_agent": "MAIN",
+        "messages": [],
+        "skill_scores": {},
+        "behavior_scores": {},
+        "extracted_info": {
+            "job_description": request.job_description or "",
+            "resume_text": request.resume_text or ""
+        },
+        "current_question": None,
         "questions_asked": 0,
-        "answers": [],
-        "skill_assessment": {},
-        "behavior_analysis": {}
+        "is_complete": False,
+        "report_data": None
     }
-    redis_service.set(f"interview:{session_id}", state, expire=3600*24)
 
-    # Generate first question using LLM
-    first_question = llm_service.generate(
-        f"Generate an opening interview question for a candidate. Job ID: {request.job_id}, Resume ID: {request.resume_id}",
-        system_prompt="You are a professional interviewer. Ask a warm, welcoming opening question that gives the candidate a chance to introduce themselves."
-    )
+    # Save initial state to Redis
+    await interview_state_manager.save_state(session_id, initial_state)
 
-    return {
-        "session_id": session_id,
-        "status": "IN_PROGRESS",
-        "first_question": {
-            "question": first_question,
+    # Get the compiled graph
+    graph = get_interview_graph()
+
+    # Create config for checkpointer
+    config = {"configurable": {"thread_id": session_id}}
+
+    # Run the graph with initial state
+    result = graph.invoke(initial_state, config)
+
+    # Extract first question
+    first_question = result.get("current_question", {})
+    if not first_question:
+        # Generate opening question via LLM if graph didn't
+        from src.services.llm_service import llm_service
+        opening = llm_service.generate(
+            f"Generate an opening interview question. Job: {request.job_id}",
+            system_prompt="You are a professional interviewer. Ask a warm opening question."
+        )
+        first_question = {
+            "question": opening,
             "question_type": "OPENING",
             "expected_skills": []
         }
-    }
 
-@router.post("/answer")
-async def submit_answer(request: InterviewAnswerRequest):
-    """
-    Submit candidate's answer and get next question or finish
-    """
-    from src.services.llm_service import llm_service
-    from src.services.redis_service import redis_service
+    # Save updated state
+    await interview_state_manager.save_state(session_id, result)
 
-    # Get current state
-    state = redis_service.get(f"interview:{request.session_id}")
-    if not state:
-        raise HTTPException(status_code=404, detail="Interview session not found")
-
-    # Store the answer
-    state["answers"].append({
-        "question": state.get("current_question", {}).get("question", ""),
-        "answer": request.answer
-    })
-
-    # Check if interview should end (after ~10 questions)
-    if state["questions_asked"] >= 10:
-        state["status"] = "COMPLETED"
-        redis_service.set(f"interview:{request.session_id}", state)
-        return {
-            "session_id": request.session_id,
-            "status": "COMPLETED",
-            "message": "Thank you for your time. The interview is complete.",
-            "next_question": None
-        }
-
-    # Generate next question
-    next_question = llm_service.generate(
-        f"Generate the next interview question based on this context. Session: {request.session_id}",
-        system_prompt="You are a professional interviewer. Ask one thoughtful follow-up question based on the candidate's previous answer."
+    return QuestionResponse(
+        session_id=session_id,
+        status="IN_PROGRESS",
+        question=first_question,
+        is_complete=False
     )
 
-    state["questions_asked"] += 1
-    state["current_question"] = {
-        "question": next_question,
-        "question_type": "FOLLOW_UP",
-        "expected_skills": []
-    }
-    redis_service.set(f"interview:{request.session_id}", state)
 
-    return {
-        "session_id": request.session_id,
-        "status": "IN_PROGRESS",
-        "next_question": {
-            "question": next_question,
-            "question_type": "FOLLOW_UP",
-            "expected_skills": []
-        }
-    }
-
-@router.get("/{session_id}/report")
-async def get_interview_report(session_id: str):
+@router.get("/sessions/{session_id}", response_model=Dict[str, Any])
+async def get_session(session_id: str):
     """
-    Get the final interview report with scores and recommendation
+    Get current interview session state and history.
     """
-    from src.services.redis_service import redis_service
-
-    state = redis_service.get(f"interview:{session_id}")
+    state = await interview_state_manager.load_state(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="Interview session not found")
 
-    # Generate report using LLM
-    from src.services.llm_service import llm_service
+    history = await interview_state_manager.get_history(session_id)
 
-    report_prompt = f"""Based on the following interview Q&A, generate a detailed report:
-    {state.get('answers', [])}
+    return {
+        "session_id": session_id,
+        "status": state.get("status", "UNKNOWN"),
+        "current_agent": state.get("current_agent", "MAIN"),
+        "questions_asked": state.get("questions_asked", 0),
+        "is_complete": state.get("is_complete", False),
+        "current_question": state.get("current_question"),
+        "history": history,
+        "skill_scores": state.get("skill_scores", {}),
+        "behavior_scores": state.get("behavior_scores", {})
+    }
 
-    Return a JSON with:
-    - overall_score: 0-100
-    - skill_score: 0-100
-    - behavior_score: 0-100
-    - recommendation: STRONG_HIRE, HIRE, NO_HIRE, or WEAK_NO_HIRE
-    - summary: Executive summary
-    - strengths: List of strengths
-    - concerns: List of concerns
+
+@router.post("/sessions/{session_id}/message", response_model=QuestionResponse)
+async def send_message(session_id: str, request: SendMessageRequest):
     """
+    Send a candidate message and get the next question or completion.
+    """
+    # Load current state
+    state = await interview_state_manager.load_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Interview session not found")
 
-    report = llm_service.generate(report_prompt, system_prompt="You are an expert interview analyst. Generate a comprehensive evaluation report.")
+    if state.get("is_complete"):
+        return QuestionResponse(
+            session_id=session_id,
+            status="COMPLETED",
+            message="Interview has already been completed",
+            is_complete=True
+        )
+
+    # Append the candidate's message
+    await interview_state_manager.append_message(
+        session_id,
+        role="candidate",
+        content=request.message
+    )
+
+    # Update messages in state
+    history = await interview_state_manager.get_history(session_id)
+    state["messages"] = history
+
+    # Run the graph
+    graph = get_interview_graph()
+    config = {"configurable": {"thread_id": session_id}}
+    result = graph.invoke(state, config)
+
+    # Save updated state
+    await interview_state_manager.save_state(session_id, result)
+
+    # Get the next question
+    current_question = result.get("current_question")
+    is_complete = result.get("is_complete", False)
+
+    # If interview is complete, generate report
+    if is_complete and not result.get("report_data"):
+        from src.agents.report_generator import ReportGeneratorAgent
+        agent = ReportGeneratorAgent()
+        result = agent.process(result)
+        await interview_state_manager.save_state(session_id, result)
+
+    return QuestionResponse(
+        session_id=session_id,
+        status="COMPLETED" if is_complete else "IN_PROGRESS",
+        question=current_question,
+        is_complete=is_complete
+    )
+
+
+@router.post("/sessions/{session_id}/end")
+async def end_session(session_id: str):
+    """
+    End the interview and generate final report.
+    """
+    state = await interview_state_manager.load_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+
+    # Mark as complete
+    state["is_complete"] = True
+
+    # Run report generator
+    from src.agents.report_generator import ReportGeneratorAgent
+    agent = ReportGeneratorAgent()
+    result = agent.process(state)
+
+    # Save final state and report
+    await interview_state_manager.save_state(session_id, result)
+    await interview_state_manager.save_report(session_id, result.get("report_data", {}))
+
+    report_data = result.get("report_data", {})
 
     return {
         "session_id": session_id,
         "status": "COMPLETED",
         "report": {
-            "overall_score": 75,
-            "skill_score": 72,
-            "behavior_score": 78,
-            "recommendation": "HIRE",
-            "summary": "Candidate shows solid technical foundation and good communication skills.",
-            "strengths": ["Strong Python skills", "Good problem-solving approach"],
-            "concerns": ["Limited leadership experience"]
+            "overall_score": report_data.get("overall_score", 75),
+            "skill_score": report_data.get("skill_score", 75),
+            "behavior_score": report_data.get("behavior_score", 75),
+            "recommendation": report_data.get("recommendation", "HIRE"),
+            "summary": report_data.get("summary", ""),
+            "strengths": report_data.get("strengths", []),
+            "concerns": report_data.get("concerns", []),
+            "interview_highlights": report_data.get("interview_highlights", [])
         }
     }
 
-@router.get("/{session_id}/status")
-async def get_interview_status(session_id: str):
-    """Get current interview status for resume capability"""
-    from src.services.redis_service import redis_service
 
-    state = redis_service.get(f"interview:{session_id}")
+@router.get("/sessions/{session_id}/report", response_model=Dict[str, Any])
+async def get_report(session_id: str):
+    """
+    Get the interview report for a session.
+    """
+    # Try to get from Redis first
+    report = await interview_state_manager.get_report(session_id)
+    if not report:
+        # Try to get from saved state
+        state = await interview_state_manager.load_state(session_id)
+        if state:
+            report = state.get("report_data", {})
+
+    if not report:
+        raise HTTPException(status_code=404, detail="Interview report not found")
+
+    return {
+        "session_id": session_id,
+        "overall_score": report.get("overall_score", 0),
+        "skill_score": report.get("skill_score", 0),
+        "behavior_score": report.get("behavior_score", 0),
+        "recommendation": report.get("recommendation", "UNKNOWN"),
+        "summary": report.get("summary", ""),
+        "strengths": report.get("strengths", []),
+        "concerns": report.get("concerns", []),
+        "interview_highlights": report.get("interview_highlights", [])
+    }
+
+
+@router.post("/sessions/{session_id}/resume")
+async def resume_session(session_id: str):
+    """
+    Resume an interrupted interview session.
+    """
+    state = await interview_state_manager.load_state(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Interview session not found")
+
+    if state.get("is_complete"):
+        return {
+            "session_id": session_id,
+            "status": "ALREADY_COMPLETED",
+            "message": "This interview has already been completed"
+        }
+
+    # Get the last question to continue from
+    current_question = state.get("current_question")
+    questions_asked = state.get("questions_asked", 0)
+
+    return {
+        "session_id": session_id,
+        "status": "READY_TO_RESUME",
+        "current_question": current_question,
+        "questions_asked": questions_asked,
+        "message": "Session restored. Continue from where you left off."
+    }
+
+
+@router.get("/sessions/{session_id}/status")
+async def get_session_status(session_id: str):
+    """
+    Get interview session status for resume capability.
+    """
+    state = await interview_state_manager.load_state(session_id)
     if not state:
         return {
             "session_id": session_id,
@@ -184,5 +305,7 @@ async def get_interview_status(session_id: str):
         "session_id": session_id,
         "exists": True,
         "status": state.get("status", "UNKNOWN"),
-        "questions_asked": state.get("questions_asked", 0)
+        "is_complete": state.get("is_complete", False),
+        "questions_asked": state.get("questions_asked", 0),
+        "current_agent": state.get("current_agent", "MAIN")
     }
