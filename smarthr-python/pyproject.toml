@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "smarthr-python"
+version = "1.0.0"
+description = "SmartHR Multi-Agent Recruitment Platform - Python AI Service"
+authors = ["SmartHR Team"]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "^0.109.0"
+uvicorn = {extras = ["standard"], version = "^0.27.0"}
+langchain = "^0.1.0"
+langchain-community = "^0.0.10"
+langgraph = "^0.0.20"
+chromadb = "^0.4.22"
+openai = "^1.10.0"
+python-multipart = "^0.0.6"
+pydantic = "^2.5.0"
+python-dotenv = "^1.0.0"
+pypdf2 = "^3.0.1"
+python-docx = "^1.1.0"
+redis = "^5.0.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
