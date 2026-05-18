@@ -12,7 +12,7 @@ from src.services.document_processor import document_processor
 from src.services.knowledge_retriever import knowledge_retriever
 from src.services.redis_service import redis_service
 
-router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+router = APIRouter(tags=["knowledge"])
 
 
 class DocumentUploadResponse(BaseModel):

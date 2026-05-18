@@ -33,7 +33,7 @@ app.add_middleware(
 # Include routers
 app.include_router(health.router, tags=["Health"])
 app.include_router(resume.router, tags=["Resume"])
-app.include_router(interview.router, prefix="/api/interview", tags=["Interview"])
+app.include_router(interview.router, tags=["Interview"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["Knowledge"])
 
 @app.get("/")

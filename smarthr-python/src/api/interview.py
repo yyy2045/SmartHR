@@ -11,7 +11,7 @@ import json
 from src.agents.interview_graph import get_interview_graph
 from src.services.interview_state_manager import interview_state_manager
 
-router = APIRouter(prefix="/interview", tags=["interview"])
+router = APIRouter(tags=["interview"])
 
 
 # Request/Response Models
