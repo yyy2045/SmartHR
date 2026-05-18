@@ -12,6 +12,9 @@ public class KnowledgeDocument {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(unique = true, nullable = false, length = 100)
+    private String documentId;  // UUID from Python service
+
     @Column(nullable = false)
     private String title;
 
