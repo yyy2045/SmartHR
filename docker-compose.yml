@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  mysql:
+    image: mysql:8
+    container_name: smarthr-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: smarthr
+      MYSQL_USER: smarthr
+      MYSQL_PASSWORD: smarthr123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smarthr-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: smarthr-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - smarthr-network
+
+  chroma:
+    image: chromadb/chroma:0.5.0  
+    platform: linux/amd64
+    container_name: smarthr-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - smarthr-network
+
+  frontend:
+    build: ./smarthr-frontend
+    container_name: smarthr-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - smarthr-network
+  # Optional: Add pgAdmin for MySQL management
+  # pgadmin:
+  #   image: dpage/pgadmin4:latest
+  #   container_name: smarthr-pgadmin
+  #   environment:
+  #     PGADMIN_DEFAULT_EMAIL: admin@smarthr.com
+  #     PGADMIN_DEFAULT_PASSWORD: admin123
+  #   ports:
+  #     - "5050:80"
+  #   networks:
+  #     - smarthr-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  chroma_data:
+
+networks:
+  smarthr-network:
+    driver: bridge
