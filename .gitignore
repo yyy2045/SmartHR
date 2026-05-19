@@ -53,4 +53,4 @@ docker-compose.override.yml
 
 # OS
 Thumbs.db
-.DS_Store
+.DS_Storedocker-compose.yml
