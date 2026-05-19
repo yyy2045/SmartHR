@@ -15,6 +15,9 @@ import org.springframework.web.multipart.MultipartFile;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 import java.util.*;
 
 @Service
@@ -31,7 +34,7 @@ public class KnowledgeService {
 
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
-    public KnowledgeDocumentDTO uploadDocument(MultipartFile file, String docType, Long companyId) {
+    public KnowledgeDocumentDTO uploadDocument(MultipartFile file, String docType, Long companyId, String title) {
         // 1. Java generates UUID -贯穿 MySQL/Redis/Chroma 三层
         String documentId = UUID.randomUUID().toString();
 
@@ -41,7 +44,10 @@ public class KnowledgeService {
         if (originalFilename != null && originalFilename.contains(".")) {
             extension = originalFilename.substring(originalFilename.lastIndexOf("."));
         }
-        Path filePath = Paths.get("/tmp/smarthr-docs/" + documentId + extension);
+        // Use provided title, or default to filename without extension
+        String docTitle = (title != null && !title.isBlank()) ? title
+                : (originalFilename != null ? originalFilename.substring(0, originalFilename.lastIndexOf('.')) : "Untitled");
+        Path filePath = Paths.get(System.getProperty("java.io.tmpdir"), "smarthr-docs", documentId + extension);
         try {
             Files.createDirectories(filePath.getParent());
             Files.write(filePath, file.getBytes());
@@ -55,14 +61,13 @@ public class KnowledgeService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
-        org.springframework.util.MultiValueMap<String, Object> body
-            = new org.springframework.util.LinkedMultiValueMap<>();
-        body.add("file", filePath.toFile());
+        MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
+        body.add("file", new FileSystemResource(filePath));
         body.add("company_id", companyId.toString());
         body.add("doc_type", docType);
+        body.add("title", docTitle);
 
-        HttpEntity<org.springframework.util.MultiValueMap<String, Object>> entity
-            = new HttpEntity<>(body, headers);
+        HttpEntity<MultiValueMap<String, Object>> entity = new HttpEntity<>(body, headers);
 
         ResponseEntity<Map> response = restTemplate.postForEntity(pythonUrl, entity, Map.class);
 
@@ -136,7 +141,9 @@ public class KnowledgeService {
     public void reindexDocument(Long id) {
         documentRepository.findById(id).ifPresent(doc -> {
             String documentId = doc.getDocumentId();
-            String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId + "/reindex";
+            String companyId = doc.getCompanyId() != null ? doc.getCompanyId().toString() : null;
+            String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId + "/reindex"
+                + (companyId != null ? "?company_id=" + companyId : "");
             try {
                 restTemplate.postForEntity(url, null, Map.class);
             } catch (Exception e) {
@@ -147,6 +154,35 @@ public class KnowledgeService {
 
     public KnowledgeDocumentDTO getDocument(Long id) {
         return documentRepository.findById(id).map(doc -> {
+            // Call Python API to get full document details including content from Redis
+            String pythonUrl = pythonServiceUrl + "/api/knowledge/documents/" + doc.getDocumentId()
+                    + (doc.getCompanyId() != null ? "?company_id=" + doc.getCompanyId() : "");
+
+            HttpHeaders headers = new HttpHeaders();
+            HttpEntity<Void> entity = new HttpEntity<>(headers);
+
+            try {
+                ResponseEntity<Map> response = restTemplate.exchange(pythonUrl, HttpMethod.GET, entity, Map.class);
+                if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
+                    Map<String, Object> pythonDoc = response.getBody();
+                    KnowledgeDocumentDTO dto = new KnowledgeDocumentDTO();
+                    dto.setId(doc.getId());
+                    dto.setDocumentId(doc.getDocumentId());
+                    dto.setTitle((String) pythonDoc.get("title"));
+                    dto.setFilename((String) pythonDoc.get("filename"));
+                    dto.setDocType((String) pythonDoc.get("doc_type"));
+                    dto.setCompanyId(doc.getCompanyId());
+                    dto.setIndexedStatus((String) pythonDoc.get("status"));
+                    dto.setChunks((Integer) pythonDoc.get("chunks"));
+                    dto.setContent((String) pythonDoc.get("content"));
+                    dto.setCreatedAt(doc.getCreatedAt() != null ? doc.getCreatedAt().toString() : null);
+                    return dto;
+                }
+            } catch (Exception e) {
+                // Fallback to MySQL data if Python call fails
+            }
+
+            // Fallback
             KnowledgeDocumentDTO dto = new KnowledgeDocumentDTO();
             dto.setId(doc.getId());
             dto.setDocumentId(doc.getDocumentId());

@@ -44,6 +44,7 @@ public class JobService {
         job.setExperienceYears(jobDetails.getExperienceYears());
         job.setEducationLevel(jobDetails.getEducationLevel());
         job.setStatus(jobDetails.getStatus());
+        job.setDepartment(jobDetails.getDepartment());
         return jobRepository.save(job);
     }
 

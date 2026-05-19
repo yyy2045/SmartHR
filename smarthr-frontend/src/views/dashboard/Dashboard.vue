@@ -73,7 +73,8 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { getJobs } from '@/api/job'
-import { getInterviewSessions } from '@/api/interview'
+import { getInterviewSessions, getReportsCount } from '@/api/interview'
+import { getResumesCountThisWeek } from '@/api/resume'
 import dayjs from 'dayjs'
 
 const router = useRouter()
@@ -98,15 +99,19 @@ const quickActions = () => {
 
 onMounted(async () => {
   try {
-    const [jobsRes, interviewsRes] = await Promise.all([
+    const [jobsRes, interviewsRes, resumesCountRes, reportsCountRes] = await Promise.all([
       getJobs({ page: 0, size: 5 }),
-      getInterviewSessions({ status: 'IN_PROGRESS' })
+      getInterviewSessions({ status: 'IN_PROGRESS' }),
+      getResumesCountThisWeek(),
+      getReportsCount()
     ])
 
     recentJobs.value = jobsRes?.content || jobsRes || []
     upcomingInterviews.value = interviewsRes?.content || interviewsRes || []
     stats.value.totalJobs = jobsRes?.totalElements || recentJobs.value.length
     stats.value.activeInterviews = interviewsRes?.totalElements || upcomingInterviews.value.length
+    stats.value.resumesThisWeek = resumesCountRes?.data || resumesCountRes || 0
+    stats.value.reportsGenerated = reportsCountRes?.data || reportsCountRes || 0
   } catch (error) {
     console.error('Failed to load dashboard data:', error)
   }

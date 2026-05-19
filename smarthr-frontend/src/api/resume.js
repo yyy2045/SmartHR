@@ -11,10 +11,18 @@ export function getResume(id) {
 }
 
 // POST /api/resumes/upload
-export function uploadResume(file, companyId) {
+export function uploadResume(file, jobId, candidateName, companyId) {
   const formData = new FormData()
   formData.append('file', file)
-  formData.append('companyId', companyId)
+  if (jobId) {
+    formData.append('jobId', jobId)
+  }
+  if (candidateName) {
+    formData.append('candidateName', candidateName)
+  }
+  if (companyId) {
+    formData.append('companyId', companyId)
+  }
   return api.post('/api/resumes/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
@@ -33,4 +41,9 @@ export function deleteResume(id) {
 // POST /api/resumes/:id/parse
 export function parseResume(resumeId) {
   return api.post(`/api/resumes/${resumeId}/parse`)
+}
+
+// GET /api/resumes/stats/count-this-week
+export function getResumesCountThisWeek() {
+  return api.get('/api/resumes/stats/count-this-week')
 }

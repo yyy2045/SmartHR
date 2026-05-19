@@ -179,13 +179,16 @@ class ContextManager:
     async def get_all_user_sessions(self, user_id: str) -> List[str]:
         """Get all session IDs for a user (for resume capability)"""
         pattern = f"conversation:*:context"
-        keys = self.redis.keys(pattern)
+        keys = self.redis.scan_keys(pattern)
         session_ids = []
         for key in keys:
-            # Extract session_id from key
-            parts = key.split(":")
-            if len(parts) >= 2:
-                session_ids.append(parts[1])
+            # Extract session_id from key: conversation:{session_id}:context
+            # Use rsplit to handle session_ids that may contain colons
+            parts = key.rsplit(":", 1)
+            if len(parts) == 2:
+                # parts[0] is "conversation:{session_id}", extract session_id
+                session_id = parts[0].split(":", 1)[1] if ":" in parts[0] else parts[0]
+                session_ids.append(session_id)
         return session_ids
 
 

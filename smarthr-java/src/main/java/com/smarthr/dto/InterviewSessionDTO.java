@@ -18,4 +18,6 @@ public class InterviewSessionDTO {
     private List<Map<String, Object>> history;
     private Map<String, Object> skillScores;
     private Map<String, Object> behaviorScores;
+    private String candidateName;
+    private String jobTitle;
 }

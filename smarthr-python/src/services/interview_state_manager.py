@@ -2,6 +2,7 @@
 面试状态管理器 - 基于 Redis 的多智能体面试状态持久化
 """
 
+import asyncio
 import json
 from typing import Dict, Any, List, Optional
 from src.services.redis_service import redis_service
@@ -30,41 +31,43 @@ class InterviewStateManager:
         return None
 
     async def append_message(self, session_id: str, role: str, content: str, metadata: Dict[str, Any] = None):
-        """向对话历史添加消息"""
+        """向对话历史添加消息（使用 Redis 列表实现原子操作）"""
         key = f"interview:{session_id}:history"
         message = {
             "role": role,
             "content": content,
             "metadata": metadata or {}
         }
-        # 获取现有历史
-        history = self.get_history(session_id)
-        history.append(message)
-        # 保存更新后的历史
-        self.redis.set(key, json.dumps(history), expire=self.ttl)
+        import json
+        serialized = json.dumps(message)
+        # 使用 RPUSH 原子追加，避免 get_history + set 的 race condition
+        self.redis.client.rpush(key, serialized)
+        self.redis.client.expire(key, self.ttl)
 
     async def get_history(self, session_id: str) -> List[Dict[str, Any]]:
         """获取完整的对话历史"""
         key = f"interview:{session_id}:history"
-        data = self.redis.get(key)
-        if data:
-            if isinstance(data, list):
-                return data
+        # 使用 LRANGE 获取列表中的所有消息
+        items = self.redis.client.lrange(key, 0, -1)
+        history = []
+        for item in items:
             try:
-                return json.loads(data)
+                history.append(json.loads(item))
             except json.JSONDecodeError:
-                return []
-        return []
+                pass
+        return history
 
     async def update_skill_scores(self, session_id: str, skill_scores: Dict[str, float]):
-        """更新会话的技能分数"""
+        """更新会话的技能分数（合并已有分数）"""
         key = f"interview:{session_id}:skills"
-        self.redis.set(key, json.dumps(skill_scores), expire=self.ttl)
+        existing = await self.get_skill_scores(session_id)
+        merged = {**existing, **skill_scores}
+        await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
 
     async def get_skill_scores(self, session_id: str) -> Dict[str, float]:
         """获取会话的技能分数"""
         key = f"interview:{session_id}:skills"
-        data = self.redis.get(key)
+        data = await asyncio.to_thread(self.redis.get, key)
         if data:
             if isinstance(data, dict):
                 return data
@@ -75,14 +78,16 @@ class InterviewStateManager:
         return {}
 
     async def update_behavior_scores(self, session_id: str, behavior_scores: Dict[str, float]):
-        """更新会话的行为分数"""
+        """更新会话的行为分数（合并已有分数）"""
         key = f"interview:{session_id}:behavior"
-        self.redis.set(key, json.dumps(behavior_scores), expire=self.ttl)
+        existing = await self.get_behavior_scores(session_id)
+        merged = {**existing, **behavior_scores}
+        await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
 
     async def get_behavior_scores(self, session_id: str) -> Dict[str, float]:
         """获取会话的行为分数"""
         key = f"interview:{session_id}:behavior"
-        data = self.redis.get(key)
+        data = await asyncio.to_thread(self.redis.get, key)
         if data:
             if isinstance(data, dict):
                 return data
@@ -152,7 +157,7 @@ class InterviewStateManager:
     async def get_all_sessions(self, company_id: str = None) -> List[str]:
         """获取所有会话 ID，可按公司过滤"""
         pattern = "interview:*:state"
-        keys = self.redis.keys(pattern)
+        keys = self.redis.scan_keys(pattern)
         session_ids = []
         for key in keys:
             # 从键中提取 session_id

@@ -10,6 +10,7 @@ import json
 
 from src.agents.interview_graph import get_interview_graph
 from src.services.interview_state_manager import interview_state_manager
+from src.services.llm_service import llm_service
 
 router = APIRouter(prefix="/api/interview", tags=["面试"])
 
@@ -36,6 +37,8 @@ class QuestionResponse(BaseModel):
     question: Optional[Dict[str, Any]] = None
     is_complete: bool = False
     message: Optional[str] = None
+    skillScores: Optional[Dict[str, int]] = None
+    behaviorScores: Optional[Dict[str, int]] = None
 
 
 class ReportResponse(BaseModel):
@@ -185,14 +188,37 @@ async def send_message(session_id: str, request: SendMessageRequest):
     except Exception as e:
         print(f"[interview] append_message failed: {e}")
 
+    # 同步消息到 state（供报告生成使用）
+    try:
+        history = await interview_state_manager.get_history(session_id)
+        state["messages"] = history
+    except Exception as e:
+        print(f"[interview] get_history failed: {e}")
+
     questions_asked = int(state.get("questions_asked", 0) or 0)
     job_description = state.get("extracted_info", {}).get("job_description", "")
     previous_q = state.get("current_question") or {}
     previous_q_text = previous_q.get("question", "") if isinstance(previous_q, dict) else str(previous_q)
 
+    # 评估候选人的回答并更新技能/行为评分
+    if questions_asked >= 0 and request.message:
+        eval_type = "TECHNICAL" if questions_asked < 2 else ("BEHAVIORAL" if questions_asked < 4 else "EXPERIENCE")
+        try:
+            await evaluate_answer(state, request.message, eval_type)
+        except Exception as e:
+            print(f"[interview] evaluate_answer failed: {e}")
+        # 评估后重新加载 state（evaluate_answer 内部已保存，但确保引用一致）
+        state = await interview_state_manager.load_state(session_id) or state
+        # 同步 Redis 中的实时分数（evaluate_answer 写入了独立 key）
+        state["skill_scores"] = await interview_state_manager.get_skill_scores(session_id)
+        state["behavior_scores"] = await interview_state_manager.get_behavior_scores(session_id)
+
     # 10 题封顶，直接结束面试
     if questions_asked >= 9:
         state["is_complete"] = True
+        # 从 Redis 同步最新的技能/行为分数
+        state["skill_scores"] = await interview_state_manager.get_skill_scores(session_id)
+        state["behavior_scores"] = await interview_state_manager.get_behavior_scores(session_id)
         try:
             await interview_state_manager.save_state(session_id, state)
         except Exception as e:
@@ -201,7 +227,9 @@ async def send_message(session_id: str, request: SendMessageRequest):
             session_id=session_id,
             status="COMPLETED",
             message="面试已完成",
-            is_complete=True
+            is_complete=True,
+            skillScores=state.get("skill_scores", {}),
+            behaviorScores=state.get("behavior_scores", {})
         )
 
     # 通过 LLM 直接生成下一个问题（跳过 LangGraph 以稳定首响并避开节点链路异常）
@@ -261,7 +289,9 @@ async def send_message(session_id: str, request: SendMessageRequest):
         session_id=session_id,
         status="IN_PROGRESS",
         question=next_question,
-        is_complete=False
+        is_complete=False,
+        skillScores=state.get("skill_scores", {}),
+        behaviorScores=state.get("behavior_scores", {})
     )
 
 
@@ -273,6 +303,15 @@ async def end_session(session_id: str):
     state = await interview_state_manager.load_state(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="未找到面试会话")
+
+    # 确保消息历史是最新的
+    try:
+        history = await interview_state_manager.get_history(session_id)
+        state["messages"] = history
+        state["skill_scores"] = await interview_state_manager.get_skill_scores(session_id)
+        state["behavior_scores"] = await interview_state_manager.get_behavior_scores(session_id)
+    except Exception as e:
+        print(f"[interview] sync state before report failed: {e}")
 
     # 标记为完成
     state["is_complete"] = True
@@ -295,11 +334,14 @@ async def end_session(session_id: str):
             "overall_score": report_data.get("overall_score", 75),
             "skill_score": report_data.get("skill_score", 75),
             "behavior_score": report_data.get("behavior_score", 75),
+            "skillScores": report_data.get("skillScores", {}),
+            "behaviorScores": report_data.get("behaviorScores", {}),
             "recommendation": report_data.get("recommendation", "HIRE"),
             "summary": report_data.get("summary", ""),
             "strengths": report_data.get("strengths", []),
             "concerns": report_data.get("concerns", []),
-            "interview_highlights": report_data.get("interview_highlights", [])
+            "interview_highlights": report_data.get("interview_highlights", []),
+            "qaSummary": report_data.get("qaSummary", [])
         }
     }
 
@@ -320,16 +362,23 @@ async def get_report(session_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="未找到面试报告")
 
+    # 同时返回各维度评分（直接从 Redis 独立 key 读取，不依赖 state）
+    skill_scores = await interview_state_manager.get_skill_scores(session_id)
+    behavior_scores = await interview_state_manager.get_behavior_scores(session_id)
+
     return {
         "session_id": session_id,
         "overall_score": report.get("overall_score", 0),
         "skill_score": report.get("skill_score", 0),
         "behavior_score": report.get("behavior_score", 0),
+        "skillScores": skill_scores,
+        "behaviorScores": behavior_scores,
         "recommendation": report.get("recommendation", "UNKNOWN"),
         "summary": report.get("summary", ""),
         "strengths": report.get("strengths", []),
         "concerns": report.get("concerns", []),
-        "interview_highlights": report.get("interview_highlights", [])
+        "interview_highlights": report.get("interview_highlights", []),
+        "qaSummary": report.get("qaSummary", [])
     }
 
 
@@ -382,3 +431,51 @@ async def get_session_status(session_id: str):
         "questions_asked": state.get("questions_asked", 0),
         "current_agent": state.get("current_agent", "MAIN")
     }
+
+
+async def evaluate_answer(state: Dict, answer: str, eval_type: str):
+    """
+    根据候选人的回答评估技能/行为分数并存入 state
+    eval_type: TECHNICAL | BEHAVIORAL | EXPERIENCE
+    """
+    import asyncio
+
+    prompt = (
+        f"你是一位面试评估专家。请评估候选人在以下面试问题中的回答表现，并给出评分。\n\n"
+        f"问题类型：{eval_type}\n"
+        f"候选人回答：{answer[:800]}\n\n"
+        f"请返回严格 JSON：\n"
+        '{"score": 0-100整数, "category": "技术能力|沟通表达|问题解决|协作能力|学习成长"}'
+    )
+
+    try:
+        result = await asyncio.wait_for(
+            asyncio.to_thread(llm_service.generate, prompt, "你是一位专业的面试评估专家。"),
+            timeout=30.0
+        )
+        parsed = _parse_eval_result(result)
+        if parsed and "score" in parsed:
+            category = parsed.get("category", "技术能力")
+            score = int(parsed["score"])
+            if eval_type == "TECHNICAL":
+                existing_skills = await interview_state_manager.get_skill_scores(state["session_id"])
+                await interview_state_manager.update_skill_scores(state["session_id"], {category: score})
+                state["skill_scores"] = {**existing_skills, category: score}
+            else:
+                existing_behaviors = await interview_state_manager.get_behavior_scores(state["session_id"])
+                await interview_state_manager.update_behavior_scores(state["session_id"], {category: score})
+                state["behavior_scores"] = {**existing_behaviors, category: score}
+            await interview_state_manager.save_state(state["session_id"], state)
+    except Exception as e:
+        print(f"[interview] evaluate_answer failed: {e}")
+
+
+def _parse_eval_result(text: str) -> Dict:
+    import json, re
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group())
+        except Exception:
+            pass
+    return {}

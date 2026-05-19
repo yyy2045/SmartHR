@@ -31,6 +31,8 @@ public class Job {
 
     private String status; // OPEN, CLOSED
 
+    private String department; // 部门名称
+
     @Column(updatable = false)
     private LocalDateTime createdAt;
 

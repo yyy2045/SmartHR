@@ -11,6 +11,7 @@
       <el-table :data="jobs" v-loading="loading" style="width: 100%" :scrollable="true">
         <el-table-column prop="id" label="ID" width="60" />
         <el-table-column prop="title" label="岗位名称" min-width="150" />
+        <el-table-column prop="department" label="部门" width="120" />
         <el-table-column prop="requirements" label="岗位要求" min-width="200" show-overflow-tooltip />
         <el-table-column prop="experienceYears" label="经验要求" width="100" />
         <el-table-column prop="educationLevel" label="学历要求" width="100" />
@@ -54,6 +55,9 @@
         <el-form-item label="岗位名称" prop="title">
           <el-input v-model="jobForm.title" placeholder="岗位名称" />
         </el-form-item>
+        <el-form-item label="部门">
+          <el-input v-model="jobForm.department" placeholder="所属部门" />
+        </el-form-item>
         <el-form-item label="岗位要求" prop="requirements">
           <el-input v-model="jobForm.requirements" type="textarea" :rows="3" placeholder="岗位具体要求" />
         </el-form-item>
@@ -76,7 +80,7 @@
           <el-tag v-for="tag in jobForm.tags" :key="tag" closable @close="removeTag(tag)" style="margin-right: 8px">
             {{ tag }}
           </el-tag>
-          <el-button size="small" @click="extractTags" :loading="extracting">AI 提取标签</el-button>
+          <el-button v-if="isEdit" size="small" @click="extractTags" :loading="extracting">AI 提取标签</el-button>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -114,6 +118,7 @@ const pagination = reactive({
 const jobForm = reactive({
   id: null,
   title: '',
+  department: '',
   requirements: '',
   description: '',
   experienceYears: 0,
@@ -163,6 +168,7 @@ const editJob = (row) => {
   isEdit.value = true
   jobForm.id = row.id
   jobForm.title = row.title
+  jobForm.department = row.department || ''
   jobForm.requirements = row.requirements || ''
   jobForm.description = row.description || ''
   jobForm.experienceYears = row.experienceYears || 0
@@ -220,6 +226,7 @@ const extractTags = async () => {
 const resetForm = () => {
   jobForm.id = null
   jobForm.title = ''
+  jobForm.department = ''
   jobForm.requirements = ''
   jobForm.description = ''
   jobForm.experienceYears = 0
@@ -236,6 +243,7 @@ const submitForm = async () => {
       try {
         const data = {
           title: jobForm.title,
+          department: jobForm.department,
           requirements: jobForm.requirements,
           description: jobForm.description,
           experienceYears: jobForm.experienceYears,
@@ -247,7 +255,20 @@ const submitForm = async () => {
           await updateJob(jobForm.id, data)
           ElMessage.success('岗位已更新')
         } else {
-          await createJob(data)
+          const res = await createJob(data)
+          // 保存后自动提取标签
+          const newId = res?.id || jobForm.id
+          if (newId && (jobForm.requirements || jobForm.description)) {
+            extracting.value = true
+            try {
+              const tagRes = await extractJobTags(newId)
+              if (tagRes?.tags?.length) {
+                jobForm.tags = tagRes.tags
+                await updateJob(newId, { ...data, skills: JSON.stringify(tagRes.tags) })
+              }
+            } catch {}
+            extracting.value = false
+          }
           ElMessage.success('岗位已创建')
         }
         dialogVisible.value = false

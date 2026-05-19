@@ -52,7 +52,7 @@
               <span class="db-info">localhost:8000</span>
             </el-form-item>
             <el-form-item>
-              <el-button @click="checkConnections">刷新状态</el-button>
+              <el-button @click="checkConnections" :loading="checking">刷新状态</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -74,7 +74,7 @@
               <el-input v-model="companyInfo.description" type="textarea" :rows="4" />
             </el-form-item>
             <el-form-item>
-              <el-button type="primary" @click="saveCompanyInfo">保存</el-button>
+              <el-button type="primary" @click="saveCompanyInfo" :loading="saving">保存</el-button>
             </el-form-item>
           </el-form>
         </el-card>
@@ -87,9 +87,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { ElMessage } from 'element-plus'
+import { getLlmConfig, saveLlmConfig, checkDbStatus, getCompanyInfo, saveCompanyInfo as saveCompanyApi } from '@/api/config'
+import { getCurrentUser } from '@/api/auth'
 
 const activeTab = ref('llm')
 const saving = ref(false)
+const checking = ref(false)
 
 const llmConfig = reactive({
   baseUrl: '',
@@ -98,6 +101,7 @@ const llmConfig = reactive({
 })
 
 const companyInfo = reactive({
+  id: null,
   name: '',
   industry: '',
   description: ''
@@ -112,29 +116,86 @@ const dbStatus = ref({
 const saveLLMConfig = async () => {
   saving.value = true
   try {
+    await saveLlmConfig(llmConfig)
     ElMessage.success('LLM 配置已保存')
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
   } finally {
     saving.value = false
   }
 }
 
-const saveCompanyInfo = async () => {
+const saveCompanyInfoHandler = async () => {
+  if (!companyInfo.id) {
+    ElMessage.warning('请先获取企业信息')
+    return
+  }
+  saving.value = true
   try {
+    await saveCompanyApi(companyInfo)
     ElMessage.success('企业信息已保存')
   } catch (error) {
-    ElMessage.error('保存失败')
+    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
+  } finally {
+    saving.value = false
   }
 }
 
 const checkConnections = async () => {
-  dbStatus.value = { mysql: true, redis: true, chroma: true }
+  checking.value = true
+  try {
+    const res = await checkDbStatus()
+    dbStatus.value = {
+      mysql: !!res.mysql,
+      redis: !!res.redis,
+      chroma: res.chroma !== false
+    }
+  } catch (error) {
+    console.error('Failed to check db status:', error)
+    ElMessage.error('检查连接状态失败')
+  } finally {
+    checking.value = false
+  }
+}
+
+const loadLlmConfig = async () => {
+  try {
+    const res = await getLlmConfig()
+    if (res) {
+      llmConfig.baseUrl = res.baseUrl || ''
+      llmConfig.apiKey = res.apiKey || ''
+      llmConfig.modelName = res.modelName || ''
+    }
+  } catch (error) {
+    console.error('Failed to load LLM config:', error)
+  }
+}
+
+const loadCompanyInfo = async () => {
+  try {
+    const userRes = await getCurrentUser()
+    if (userRes && userRes.companyId) {
+      const res = await getCompanyInfo(userRes.companyId)
+      if (res) {
+        companyInfo.id = res.id
+        companyInfo.name = res.name || ''
+        companyInfo.industry = res.industry || ''
+        companyInfo.description = res.description || ''
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load company info:', error)
+  }
 }
 
 onMounted(() => {
   checkConnections()
+  loadLlmConfig()
+  loadCompanyInfo()
 })
+
+// 暴露方法给模板使用
+const saveCompanyInfo = saveCompanyInfoHandler
 </script>
 
 <style scoped>

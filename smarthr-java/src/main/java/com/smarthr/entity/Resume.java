@@ -34,6 +34,8 @@ public class Resume {
 
     private Long userId; // HR who uploaded
 
+    private Long companyId; // Company this resume belongs to
+
     private String status; // PARSED, MATCHED, REVIEWED
 
     @Column(updatable = false)

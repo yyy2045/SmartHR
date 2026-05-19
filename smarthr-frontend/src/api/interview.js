@@ -34,3 +34,8 @@ export function getInterviewReport(sessionId) {
 export function getInterviewResume(sessionId) {
   return api.get(`/api/interview/sessions/${sessionId}/resume`)
 }
+
+// GET /api/interview/reports/stats/count
+export function getReportsCount() {
+  return api.get('/api/interview/reports/stats/count')
+}

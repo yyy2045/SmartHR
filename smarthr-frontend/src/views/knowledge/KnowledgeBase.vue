@@ -126,7 +126,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import AppLayout from '@/components/common/AppLayout.vue'
-import { getDocuments, uploadDocument as apiUploadDocument, deleteDocument, reindexDocument, searchKnowledge } from '@/api/knowledge'
+import { getDocuments, uploadDocument as apiUploadDocument, deleteDocument, reindexDocument, searchKnowledge, getDocument } from '@/api/knowledge'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -185,7 +185,7 @@ const uploadDocument = async () => {
       }
       uploading.value = true
       try {
-        await apiUploadDocument(selectedFile.value, uploadForm.docType, 1)
+        await apiUploadDocument(selectedFile.value, uploadForm.docType, 1, uploadForm.title)
         ElMessage.success('文档上传成功')
         showUploadDialog.value = false
         fetchDocuments()
@@ -220,8 +220,13 @@ const search = async () => {
   }
 }
 
-const previewDoc = (row) => {
-  previewDocData.value = row
+const previewDoc = async (row) => {
+  try {
+    const res = await getDocument(row.id, row.companyId || 1)
+    previewDocData.value = { ...row, ...res }
+  } catch {
+    previewDocData.value = row
+  }
   showPreviewDialog.value = true
 }
 

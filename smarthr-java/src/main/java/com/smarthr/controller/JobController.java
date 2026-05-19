@@ -1,5 +1,6 @@
 package com.smarthr.controller;
 
+import com.smarthr.config.JwtAuthenticationFilter.CustomAuthDetails;
 import com.smarthr.dto.JobRequest;
 import com.smarthr.dto.UnifiedResponse;
 import com.smarthr.entity.Job;
@@ -8,6 +9,11 @@ import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
@@ -26,12 +32,13 @@ public class JobController {
     private final RestTemplate restTemplate = new RestTemplate();
 
     @PostMapping
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public UnifiedResponse<Job> create(@Valid @RequestBody JobRequest request) {
         Job job = new Job();
         job.setTitle(request.getTitle());
         job.setDescription(request.getDescription());
         job.setRequirements(request.getRequirements());
-        job.setCompanyId(request.getCompanyId());
+        job.setCompanyId(getUserCompanyId());
         job.setSkills(request.getSkills());
         job.setExperienceYears(request.getExperienceYears());
         job.setEducationLevel(request.getEducationLevel());
@@ -48,10 +55,14 @@ public class JobController {
             @RequestParam(required = false) Long companyId,
             @RequestParam(required = false) String status) {
         List<Job> jobs;
+        Long userCompanyId = getUserCompanyId();
         if (companyId != null) {
             jobs = jobService.findByCompanyId(companyId);
         } else if (status != null) {
             jobs = jobService.findByStatus(status);
+        } else if (userCompanyId != null) {
+            // 普通用户只能看自己公司的岗位
+            jobs = jobService.findByCompanyId(userCompanyId);
         } else {
             jobs = jobService.findAll();
         }
@@ -59,6 +70,7 @@ public class JobController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public UnifiedResponse<Job> update(@PathVariable Long id, @RequestBody JobRequest request) {
         Job job = new Job();
         job.setTitle(request.getTitle());
@@ -72,12 +84,14 @@ public class JobController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public UnifiedResponse<Void> delete(@PathVariable Long id) {
         jobService.delete(id);
         return UnifiedResponse.success("Job deleted successfully", null);
     }
 
     @PostMapping("/{id}/extract-tags")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public ResponseEntity<UnifiedResponse<Map<String, Object>>> extractTags(@PathVariable Long id) {
         try {
             Job job = jobService.findById(id);
@@ -112,5 +126,13 @@ public class JobController {
             return ResponseEntity.internalServerError()
                 .body(UnifiedResponse.error("标签提取失败: " + e.getMessage()));
         }
+    }
+
+    private Long getUserCompanyId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof CustomAuthDetails) {
+            return ((CustomAuthDetails) auth.getDetails()).getCompanyId();
+        }
+        return null;
     }
 }

@@ -12,30 +12,30 @@ class Settings(BaseSettings):
     port: int = 8001
 
     # LLM 配置 - 统一接口
-    llm_provider: str = "deepseek"  # deepseek, openai, anthropic
+    llm_provider: str = os.getenv("LLM_PROVIDER", "deepseek")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    deepseek_base_url: str = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+    deepseek_model: str = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
 
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
-    openai_base_url: str = "https://api.openai.com"
-    openai_model: str = "gpt-4-turbo-preview"
+    openai_base_url: str = os.getenv("OPENAI_BASE_URL", "https://api.openai.com")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4-turbo-preview")
 
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
-    anthropic_model: str = "claude-3-sonnet-20240229"
+    anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229")
 
     # Chroma 向量数据库
-    chroma_host: str = "localhost"
-    chroma_port: int = 8000
-    chroma_persist_directory: str = "./chroma_data"
+    chroma_host: str = os.getenv("CHROMA_HOST", "localhost")
+    chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))
+    chroma_persist_directory: str = os.getenv("CHROMA_PERSIST_DIR", "./chroma_data")
 
     # Redis 配置
-    redis_host: str = "localhost"
-    redis_port: int = 6379
-    redis_db: int = 0
+    redis_host: str = os.getenv("REDIS_HOST", "localhost")
+    redis_port: int = int(os.getenv("REDIS_PORT", "6379"))
+    redis_db: int = int(os.getenv("REDIS_DB", "0"))
 
     # Java 后端回调地址
-    java_backend_url: str = "http://localhost:8080"
+    java_backend_url: str = os.getenv("JAVA_BACKEND_URL", "http://localhost:8080")
 
     class Config:
         env_file = ".env"

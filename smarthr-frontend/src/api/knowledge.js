@@ -1,11 +1,12 @@
 import api from './index'
 
 // POST /api/knowledge/documents
-export function uploadDocument(file, docType, companyId) {
+export function uploadDocument(file, docType, companyId, title) {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('docType', docType)
   formData.append('companyId', companyId)
+  formData.append('title', title)
   return api.post('/api/knowledge/documents', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
@@ -17,8 +18,10 @@ export function getDocuments(params) {
 }
 
 // GET /api/knowledge/documents/:id
-export function getDocument(id) {
-  return api.get(`/api/knowledge/documents/${id}`)
+export function getDocument(id, companyId) {
+  return api.get(`/api/knowledge/documents/${id}`, {
+    params: { companyId }
+  })
 }
 
 // DELETE /api/knowledge/documents/:id

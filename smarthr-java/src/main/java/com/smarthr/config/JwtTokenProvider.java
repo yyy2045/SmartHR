@@ -31,6 +31,34 @@ public class JwtTokenProvider {
         return extractClaim(token, Claims::getSubject);
     }
 
+    public String extractRole(String token) {
+        return extractClaim(token, claims -> claims.get("role", String.class));
+    }
+
+    public Long extractUserId(String token) {
+        return extractClaim(token, claims -> {
+            Object userId = claims.get("userId");
+            if (userId instanceof Integer) {
+                return ((Integer) userId).longValue();
+            } else if (userId instanceof Long) {
+                return (Long) userId;
+            }
+            return 0L;
+        });
+    }
+
+    public Long extractCompanyId(String token) {
+        return extractClaim(token, claims -> {
+            Object companyId = claims.get("companyId");
+            if (companyId instanceof Integer) {
+                return ((Integer) companyId).longValue();
+            } else if (companyId instanceof Long) {
+                return (Long) companyId;
+            }
+            return null;
+        });
+    }
+
     public Date extractExpiration(String token) {
         return extractClaim(token, Claims::getExpiration);
     }
@@ -52,10 +80,11 @@ public class JwtTokenProvider {
         return extractExpiration(token).before(new Date());
     }
 
-    public String generateToken(String email, Long userId, String role) {
+    public String generateToken(String email, Long userId, String role, Long companyId) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("role", role);
+        claims.put("companyId", companyId);
         return createToken(claims, email);
     }
 

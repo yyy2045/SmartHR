@@ -37,7 +37,7 @@ public class AuthService {
 
         user = userRepository.save(user);
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId(), user.getRole());
+        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId(), user.getRole(), user.getCompanyId());
 
         return new AuthResponse(token, user.getEmail(), user.getName(), user.getRole(), user.getId());
     }
@@ -50,7 +50,7 @@ public class AuthService {
             throw new GlobalException(401, "Invalid email or password");
         }
 
-        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId(), user.getRole());
+        String token = jwtTokenProvider.generateToken(user.getEmail(), user.getId(), user.getRole(), user.getCompanyId());
 
         return new AuthResponse(token, user.getEmail(), user.getName(), user.getRole(), user.getId());
     }

@@ -11,6 +11,14 @@
       <el-card style="width: 100%">
         <el-table :data="resumes" v-loading="loading" style="width: 100%" table-layout="auto">
           <el-table-column type="index" label="#" width="60" />
+          <el-table-column prop="candidateName" label="候选人" min-width="120" />
+          <el-table-column prop="jobId" label="应聘岗位" min-width="120">
+            <template #default="{ row }">
+              <span v-if="getJobTitle(row.jobId)">{{ getJobTitle(row.jobId) }}</span>
+              <span v-else-if="row.jobId">岗位 #{{ row.jobId }}</span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="matchScore" label="匹配度" min-width="120">
             <template #default="{ row }">
               <el-tag v-if="row.matchScore" :type="getMatchType(row.matchScore)">{{ row.matchScore }}%</el-tag>
@@ -36,20 +44,33 @@
       </el-card>
 
       <el-dialog v-model="showUploadDialog" title="上传简历" width="500px">
-        <el-upload
-          ref="uploadRef"
-          drag
-          :auto-upload="false"
-          :limit="1"
-          accept=".pdf,.doc,.docx"
-          :on-change="handleFileChange"
-        >
-          <el-icon><UploadFilled /></el-icon>
-          <div>将文件拖到此处，或<em>点击上传</em></div>
-          <template #tip>
-            <div class="el-upload__tip">支持 PDF、Word 格式，最大 5MB</div>
-          </template>
-        </el-upload>
+        <el-form ref="uploadFormRef" :model="uploadForm" label-width="100px">
+          <el-form-item label="候选人姓名" prop="candidateName">
+            <el-input v-model="uploadForm.candidateName" placeholder="请输入候选人姓名" />
+          </el-form-item>
+          <el-form-item label="应聘岗位" prop="jobId">
+            <el-select v-model="uploadForm.jobId" placeholder="选择应聘岗位" style="width: 100%">
+              <el-option label="暂不选择" :value="null" />
+              <el-option v-for="job in jobOptions" :key="job.id" :label="job.title" :value="job.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="简历文件">
+            <el-upload
+              ref="uploadRef"
+              drag
+              :auto-upload="false"
+              :limit="1"
+              accept=".pdf,.doc,.docx"
+              :on-change="handleFileChange"
+            >
+              <el-icon><UploadFilled /></el-icon>
+              <div>将文件拖到此处，或<em>点击上传</em></div>
+              <template #tip>
+                <div class="el-upload__tip">支持 PDF、Word 格式，最大 5MB</div>
+              </template>
+            </el-upload>
+          </el-form-item>
+        </el-form>
         <template #footer>
           <el-button @click="showUploadDialog = false">取消</el-button>
           <el-button type="primary" @click="uploadResume" :loading="uploading">上传</el-button>
@@ -62,12 +83,20 @@
           <el-divider />
           <h4>匹配要点</h4>
           <ul v-if="matchResult.matchingPoints && matchResult.matchingPoints.length">
-            <li v-for="(point, idx) in matchResult.matchingPoints" :key="idx">{{ formatPoint(point) }}</li>
+            <li v-for="(point, idx) in matchResult.matchingPoints" :key="idx">
+              <b>{{ point['技能'] || point.skill }}</b>
+              <el-tag size="small" :type="getLevelType(point['等级'] || point.level)">{{ point['等级'] || point.level }}</el-tag>
+              — {{ point['详情'] || point.details }}
+            </li>
           </ul>
           <p v-else>暂无匹配要点</p>
           <h4>风险要点</h4>
           <ul v-if="matchResult.riskPoints && matchResult.riskPoints.length">
-            <li v-for="(risk, idx) in matchResult.riskPoints" :key="idx">{{ formatPoint(risk) }}</li>
+            <li v-for="(risk, idx) in matchResult.riskPoints" :key="idx">
+              <b>{{ risk['技能'] || risk.skill }}</b>
+              <el-tag size="small" :type="getLevelType(risk['等级'] || risk.level)">{{ risk['等级'] || risk.level }}</el-tag>
+              — {{ risk['详情'] || risk.details }}
+            </li>
           </ul>
           <p v-else>暂无风险要点</p>
         </div>
@@ -77,10 +106,11 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { getResumes, uploadResume as apiUploadResume, matchResume, deleteResume as apiDeleteResume } from '@/api/resume'
+import { getJobs } from '@/api/job'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, UploadFilled } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -88,12 +118,20 @@ import dayjs from 'dayjs'
 const router = useRouter()
 const loading = ref(false)
 const resumes = ref([])
+const jobOptions = ref([])
+const jobMap = ref({})
 const showUploadDialog = ref(false)
 const showMatchDialog = ref(false)
 const uploading = ref(false)
 const uploadRef = ref()
+const uploadFormRef = ref()
 const selectedFile = ref(null)
 const matchResult = ref(null)
+
+const uploadForm = reactive({
+  candidateName: '',
+  jobId: null
+})
 
 const formatDate = (row) => row.createdAt ? dayjs(row.createdAt).format('YYYY-MM-DD') : '-'
 
@@ -108,6 +146,14 @@ const getMatchColor = (score) => {
   if (score >= 80) return '#67c23a'
   if (score >= 60) return '#e6a23c'
   return '#f56c6c'
+}
+
+const getLevelType = (level) => {
+  if (!level) return 'info'
+  const l = String(level).toLowerCase()
+  if (l === '高' || l === 'high') return 'danger'
+  if (l === '中' || l === 'medium') return 'warning'
+  return 'info'
 }
 
 const getStatusType = (status) => {
@@ -127,9 +173,12 @@ const uploadResume = async () => {
   }
   uploading.value = true
   try {
-    await apiUploadResume(selectedFile.value, 1)
+    await apiUploadResume(selectedFile.value, uploadForm.jobId, uploadForm.candidateName)
     ElMessage.success('简历上传成功')
     showUploadDialog.value = false
+    uploadForm.candidateName = ''
+    uploadForm.jobId = null
+    selectedFile.value = null
     fetchResumes()
   } catch (error) {
     ElMessage.error('上传失败')
@@ -140,7 +189,7 @@ const uploadResume = async () => {
 
 const viewMatch = async (row) => {
   try {
-    const res = await matchResume(row.id, 1)
+    const res = await matchResume(row.id, row.jobId || 1)
     matchResult.value = res
     row.matchScore = Math.round(res.matchScore || 0)
     row.status = 'MATCHED'
@@ -159,7 +208,7 @@ const formatPoint = (point) => {
 }
 
 const startInterview = (row) => {
-  router.push(`/interview?resumeId=${row.id}&jobId=1`)
+  router.push(`/interview?resumeId=${row.id}&jobId=${row.jobId || 1}`)
 }
 
 const removeResume = async (row) => {
@@ -185,7 +234,27 @@ const fetchResumes = async () => {
   }
 }
 
-onMounted(fetchResumes)
+const fetchJobs = async () => {
+  try {
+    const res = await getJobs({ page: 0, size: 100 })
+    jobOptions.value = res?.content || res || []
+    // Build jobMap for quick lookup
+    jobOptions.value.forEach(job => {
+      jobMap.value[job.id] = job.title
+    })
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const getJobTitle = (jobId) => {
+  return jobMap.value[jobId] || null
+}
+
+onMounted(() => {
+  fetchResumes()
+  fetchJobs()
+})
 </script>
 
 <style scoped>

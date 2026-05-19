@@ -249,10 +249,10 @@ class RAGMatcher:
         system_prompt = (
             "你是招聘顾问。对比岗位描述与候选人简历，输出严格的 JSON：\n"
             "{\n"
-            '  "matching_points": [ {"skill": "...", "level": "high|medium|low", "details": "..."} ],\n'
-            '  "risk_points":     [ {"skill": "...", "level": "high|medium|low", "details": "..."} ]\n'
+            '  "matching_points": [ {"技能": "...(中文)", "等级": "高|中|低", "详情": "..."} ],\n'
+            '  "risk_points":     [ {"技能": "...(中文)", "等级": "高|中|低", "详情": "..."} ]\n'
             "}\n"
-            "matching_points 最多 5 条，risk_points 最多 3 条；details 控制在 30 字内。只返回 JSON。"
+            "技能 字段必须使用中文名称；等级 只允许填写 高、中、低；详情 控制在 30 字内。只返回 JSON。"
         )
 
         user_prompt = f"岗位：\n{job_text}\n\n候选人：\n{resume_brief}\n\n请按要求返回 JSON。"

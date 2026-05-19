@@ -19,4 +19,5 @@ public class KnowledgeDocumentDTO {
     private String indexedStatus;
     private Integer chunks;
     private String createdAt;
+    private String content;
 }

@@ -1,5 +1,6 @@
 package com.smarthr.config;
 
+import com.smarthr.entity.User;
 import com.smarthr.service.UserService;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.FilterChain;
@@ -8,13 +9,16 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Collections;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -33,13 +37,19 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader("Authorization");
         String token = null;
         String email = null;
+        String role = null;
+        Long userId = null;
+        Long companyId = null;
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             token = authHeader.substring(7);
             try {
                 email = jwtTokenProvider.extractEmail(token);
+                role = jwtTokenProvider.extractRole(token);
+                userId = jwtTokenProvider.extractUserId(token);
+                companyId = jwtTokenProvider.extractCompanyId(token);
             } catch (Exception e) {
-                logger.error("Error extracting email from token: " + e.getMessage());
+                logger.error("Error extracting claims from token: " + e.getMessage());
             }
         }
 
@@ -52,8 +62,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                         token = cookie.getValue();
                         try {
                             email = jwtTokenProvider.extractEmail(token);
+                            role = jwtTokenProvider.extractRole(token);
+                            userId = jwtTokenProvider.extractUserId(token);
+                            companyId = jwtTokenProvider.extractCompanyId(token);
                         } catch (Exception e) {
-                            logger.error("Error extracting email from cookie token: " + e.getMessage());
+                            logger.error("Error extracting claims from cookie token: " + e.getMessage());
                         }
                         break;
                     }
@@ -62,16 +75,44 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         if (email != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-            UserDetails userDetails = userService.loadUserByUsername(email);
-
+            // 先验证 token 签名有效性，再查数据库（避免 token 对应用户不存在时抛异常）
             if (jwtTokenProvider.validateToken(token, email)) {
-                UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
-                        userDetails, null, userDetails.getAuthorities());
-                authToken.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                SecurityContextHolder.getContext().setAuthentication(authToken);
+                try {
+                    UserDetails userDetails = userService.loadUserByUsername(email);
+                    // 创建带角色的 authorities
+                    SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + (role != null ? role.toUpperCase() : "USER"));
+                    UsernamePasswordAuthenticationToken authToken = new UsernamePasswordAuthenticationToken(
+                            userDetails, null, Collections.singletonList(authority));
+                    // 将 userId, companyId, role 存入 details
+                    authToken.setDetails(new CustomAuthDetails(request, userId, companyId, role));
+                    SecurityContextHolder.getContext().setAuthentication(authToken);
+                } catch (UsernameNotFoundException e) {
+                    // 用户token合法但账号不存在/被删除，不设置认证，让请求继续
+                    logger.warn("Token valid but user not found: " + email);
+                }
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    // 自定义 AuthDetails，携带额外信息
+    public static class CustomAuthDetails {
+        private final HttpServletRequest request;
+        private final Long userId;
+        private final Long companyId;
+        private final String role;
+
+        public CustomAuthDetails(HttpServletRequest request, Long userId, Long companyId, String role) {
+            this.request = request;
+            this.userId = userId;
+            this.companyId = companyId;
+            this.role = role;
+        }
+
+        public HttpServletRequest getRequest() { return request; }
+        public Long getUserId() { return userId; }
+        public Long getCompanyId() { return companyId; }
+        public String getRole() { return role; }
     }
 }

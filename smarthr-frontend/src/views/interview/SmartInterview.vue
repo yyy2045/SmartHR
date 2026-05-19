@@ -210,7 +210,10 @@ const endInterview = async () => {
   }
 }
 
-const viewReport = () => {
+const viewReport = async () => {
+  try {
+    await endInterviewApi(sessionId.value)
+  } catch {}
   router.push(`/report/${sessionId.value}`)
 }
 

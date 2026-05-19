@@ -6,6 +6,7 @@ import com.smarthr.entity.Company;
 import com.smarthr.service.CompanyService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -18,6 +19,7 @@ public class CompanyController {
     private CompanyService companyService;
 
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public UnifiedResponse<Company> create(@Valid @RequestBody CompanyRequest request) {
         Company company = new Company();
         company.setName(request.getName());
@@ -37,6 +39,7 @@ public class CompanyController {
     }
 
     @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public UnifiedResponse<Company> update(@PathVariable Long id, @RequestBody CompanyRequest request) {
         Company company = new Company();
         company.setName(request.getName());
@@ -46,6 +49,7 @@ public class CompanyController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
     public UnifiedResponse<Void> delete(@PathVariable Long id) {
         companyService.delete(id);
         return UnifiedResponse.success("Company deleted successfully", null);

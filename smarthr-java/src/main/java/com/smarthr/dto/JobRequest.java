@@ -21,4 +21,6 @@ public class JobRequest {
     private String educationLevel;
 
     private String status;
+
+    private String department;
 }

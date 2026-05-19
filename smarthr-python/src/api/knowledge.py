@@ -47,6 +47,7 @@ class DocumentResponse(BaseModel):
     uploaded_at: str
     status: str
     chunks: int
+    content: Optional[str] = None
 
 
 @router.post("/documents/{document_id}", response_model=DocumentUploadResponse)
@@ -54,7 +55,8 @@ async def upload_document(
     document_id: str,
     file: UploadFile = File(...),
     company_id: str = Form(...),
-    doc_type: str = Form(...)  # POLICY, MANUAL, HISTORY, OTHER
+    doc_type: str = Form(...),  # POLICY, MANUAL, HISTORY, OTHER
+    title: str = Form(...)  # 自定义文档标题
 ):
     """
     上传文档（PDF、Word、TXT）并向量化到知识库
@@ -69,22 +71,23 @@ async def upload_document(
     metadata = {
         "doc_id": document_id,
         "filename": filename,
+        "title": title,
         "company_id": company_id,
         "doc_type": doc_type,
         "status": "PROCESSING"
     }
 
     # 异步处理文档
+    text = None
+    chunk_ids = []
     try:
         # 处理文件内容并向量化
-        chunk_ids = await document_processor.process_file_content(
-            content=content,
-            filename=filename,
-            metadata={
-                **metadata,
-                "collection": "knowledge_base"
-            }
-        )
+        text = document_processor.extract_text_from_bytes(content, filename)
+        chunks = document_processor.chunk_text(text)
+        chunk_ids = await document_processor.vectorize_chunks(chunks, {
+            **metadata,
+            "collection": "knowledge_base"
+        })
 
         metadata["status"] = "INDEXED"
         metadata["chunks"] = len(chunk_ids)
@@ -95,6 +98,17 @@ async def upload_document(
         metadata["error"] = str(e)
         metadata["chunks"] = 0
         metadata["chunk_ids"] = []
+        print(f"[knowledge] process error: {e}")
+
+    # 将完整文本存入 Redis 供预览使用
+    doc_id = metadata.get("doc_id")
+    company_id = metadata.get("company_id")
+    if doc_id and company_id and text:
+        preview_key = f"doc_preview:{company_id}:{doc_id}"
+        try:
+            redis_service.set(preview_key, {"content": text[:10000], "filename": filename}, expire=None)
+        except Exception as e:
+            print(f"[knowledge] preview save error: {e}")
 
     # 使用复合键保存文档元数据: doc:{company_id}:{document_id}
     doc_key = f"doc:{company_id}:{document_id}"
@@ -105,7 +119,7 @@ async def upload_document(
         filename=filename,
         status=metadata["status"],
         chunks=metadata.get("chunks", 0),
-        title=filename.rsplit('.', 1)[0] if filename else "Untitled"
+        title=title or filename.rsplit('.', 1)[0] if filename else "Untitled"
     )
 
 
@@ -119,9 +133,9 @@ async def list_documents(
     """
     列出公司的所有文档，支持可选过滤
     """
-    # 使用复合模式获取所有文档键
-    pattern = "doc:*"
-    keys = redis_service.keys(pattern)
+    # 使用更精确的 key 模式过滤
+    pattern = f"doc:{company_id}:*" if company_id else "doc:*"
+    keys = redis_service.scan_keys(pattern)
 
     documents = []
     for key in keys:
@@ -137,7 +151,7 @@ async def list_documents(
 
         documents.append({
             "document_id": doc.get("doc_id"),
-            "title": doc.get("filename", "").rsplit('.', 1)[0] if doc.get("filename") else "Untitled",
+            "title": doc.get("title") or doc.get("filename", "").rsplit('.', 1)[0] if doc.get("filename") else "Untitled",
             "filename": doc.get("filename"),
             "doc_type": doc.get("doc_type"),
             "company_id": doc.get("company_id"),
@@ -172,15 +186,21 @@ async def get_document(document_id: str, company_id: Optional[str] = None):
     if not doc:
         raise HTTPException(status_code=404, detail="文档未找到")
 
+    # 尝试获取预览内容
+    doc_company_id = doc.get('company_id', '')
+    preview_key = f"doc_preview:{company_id or doc_company_id}:{document_id}"
+    preview_data = redis_service.get(preview_key)
+
     return {
         "document_id": doc.get("doc_id"),
-        "title": doc.get("filename", "").rsplit('.', 1)[0] if doc.get("filename") else "Untitled",
+        "title": doc.get("title") or doc.get("filename", "").rsplit('.', 1)[0] if doc.get("filename") else "Untitled",
         "filename": doc.get("filename"),
         "doc_type": doc.get("doc_type"),
         "company_id": doc.get("company_id"),
         "status": doc.get("status"),
         "chunks": doc.get("chunks", 0),
-        "chunk_ids": doc.get("chunk_ids", [])
+        "chunk_ids": doc.get("chunk_ids", []),
+        "content": preview_data.get("content") if preview_data and isinstance(preview_data, dict) else None
     }
 
 

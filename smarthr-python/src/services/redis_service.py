@@ -73,8 +73,19 @@ class RedisService:
         self.client.hdel(name, *keys)
 
     def keys(self, pattern: str) -> list:
-        """获取匹配模式的键"""
+        """获取匹配模式的键（仅开发环境使用，生产环境用 scan_keys）"""
         return self.client.keys(pattern)
+
+    def scan_keys(self, pattern: str, count: int = 100) -> list:
+        """使用 SCAN 迭代获取匹配模式的键，避免阻塞"""
+        keys = []
+        cursor = 0
+        while True:
+            cursor, batch = self.client.scan(cursor, match=pattern, count=count)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        return keys
 
 
 # 全局实例

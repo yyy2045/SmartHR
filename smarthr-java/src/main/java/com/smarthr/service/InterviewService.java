@@ -18,6 +18,7 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
@@ -173,6 +174,14 @@ public class InterviewService {
         Map<String, Object> question = (Map<String, Object>) body_response.get("question");
         dto.setCurrentQuestion(question);
 
+        @SuppressWarnings("unchecked")
+        Map<String, Object> skillScores = (Map<String, Object>) body_response.get("skillScores");
+        if (skillScores != null) dto.setSkillScores(skillScores);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> behaviorScores = (Map<String, Object>) body_response.get("behaviorScores");
+        if (behaviorScores != null) dto.setBehaviorScores(behaviorScores);
+
         // 如果 Python 端已标记完成，同步更新 MySQL session 状态
         if (dto.isComplete()) {
             sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
@@ -232,13 +241,11 @@ public class InterviewService {
             dto.setRecommendation(report.getRecommendation());
             dto.setSummary(report.getSummary());
 
-            @SuppressWarnings("unchecked")
-            List<String> strengths = (List<String>) report_map.get("strengths");
-            dto.setStrengths(strengths != null ? strengths : Collections.emptyList());
+            Object strengthsEndObj = report_map.get("strengths");
+            dto.setStrengths(strengthsEndObj instanceof List ? (List<String>) strengthsEndObj : Collections.emptyList());
 
-            @SuppressWarnings("unchecked")
-            List<String> concerns = (List<String>) report_map.get("concerns");
-            dto.setConcerns(concerns != null ? concerns : Collections.emptyList());
+            Object concernsEndObj = report_map.get("concerns");
+            dto.setConcerns(concernsEndObj instanceof List ? (List<String>) concernsEndObj : Collections.emptyList());
 
             return dto;
         }
@@ -254,7 +261,14 @@ public class InterviewService {
 
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        ResponseEntity<Map> response;
+        try {
+            response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
+        } catch (HttpClientErrorException.NotFound e) {
+            throw new RuntimeException("面试报告不存在（会话可能未结束）");
+        } catch (RestClientException e) {
+            throw new RuntimeException("调用 AI 服务失败: " + e.getMessage());
+        }
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             Map<String, Object> report_map = response.getBody();
@@ -267,13 +281,31 @@ public class InterviewService {
             dto.setRecommendation((String) report_map.get("recommendation"));
             dto.setSummary((String) report_map.get("summary"));
 
-            @SuppressWarnings("unchecked")
-            List<String> strengths = (List<String>) report_map.get("strengths");
-            dto.setStrengths(strengths != null ? strengths : Collections.emptyList());
+            Object strengthsObj = report_map.get("strengths");
+            dto.setStrengths(strengthsObj instanceof List ? (List<String>) strengthsObj : Collections.emptyList());
 
-            @SuppressWarnings("unchecked")
-            List<String> concerns = (List<String>) report_map.get("concerns");
-            dto.setConcerns(concerns != null ? concerns : Collections.emptyList());
+            Object concernsObj = report_map.get("concerns");
+            dto.setConcerns(concernsObj instanceof List ? (List<String>) concernsObj : Collections.emptyList());
+
+            Object highlightsObj = report_map.get("interview_highlights");
+            dto.setInterviewHighlights(highlightsObj instanceof List ? (List<String>) highlightsObj : Collections.emptyList());
+
+            Object skillScoresObj = report_map.get("skillScores");
+            if (skillScoresObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Number> skillScoresMap = (Map<String, Number>) skillScoresObj;
+                dto.setSkillScores(toDecimalMap(skillScoresMap));
+            }
+
+            Object behaviorScoresObj = report_map.get("behaviorScores");
+            if (behaviorScoresObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Number> behaviorScoresMap = (Map<String, Number>) behaviorScoresObj;
+                dto.setBehaviorScores(toDecimalMap(behaviorScoresMap));
+            }
+
+            Object qaSummaryObj = report_map.get("qaSummary");
+            dto.setQaSummary(qaSummaryObj instanceof List ? (List<String>) qaSummaryObj : Collections.emptyList());
 
             return dto;
         }
@@ -281,28 +313,13 @@ public class InterviewService {
         throw new RuntimeException("Failed to get interview report");
     }
 
-    public Map<String, Object> getSessionStatus(String sessionId) {
-        String url = pythonServiceUrl + "/api/interview/sessions/" + sessionId + "/status";
+    public InterviewSessionDTO getSessionStatus(String sessionId) {
+        String url = pythonServiceUrl + "/api/interview/sessions/" + sessionId;
 
         HttpHeaders headers = new HttpHeaders();
         HttpEntity<Void> entity = new HttpEntity<>(headers);
 
-        ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
-
-        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            return response.getBody();
-        }
-
-        throw new RuntimeException("Failed to get session status");
-    }
-
-    public InterviewSessionDTO resumeSession(String sessionId) {
-        String url = pythonServiceUrl + "/api/interview/sessions/" + sessionId + "/resume";
-
-        HttpHeaders headers = new HttpHeaders();
-        HttpEntity<Void> entity = new HttpEntity<>(headers);
-
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        ResponseEntity<Map> response = restTemplate.exchange(url, HttpMethod.GET, entity, Map.class);
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             Map<String, Object> body = response.getBody();
@@ -317,6 +334,21 @@ public class InterviewService {
 
             Integer questionsAsked = (Integer) body.get("questions_asked");
             dto.setQuestionsAsked(questionsAsked);
+
+            Boolean isComplete = (Boolean) body.get("is_complete");
+            dto.setComplete(isComplete != null ? isComplete : false);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> history = (List<Map<String, Object>>) body.get("history");
+            dto.setHistory(history != null ? history : Collections.emptyList());
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> skillScoresMap = (Map<String, Object>) body.get("skill_scores");
+            if (skillScoresMap != null) dto.setSkillScores(skillScoresMap);
+
+            @SuppressWarnings("unchecked")
+            Map<String, Object> behaviorScoresMap = (Map<String, Object>) body.get("behavior_scores");
+            if (behaviorScoresMap != null) dto.setBehaviorScores(behaviorScoresMap);
 
             return dto;
         }
@@ -333,5 +365,16 @@ public class InterviewService {
         } catch (NumberFormatException e) {
             return BigDecimal.ZERO;
         }
+    }
+
+    private Map<String, BigDecimal> toDecimalMap(Map<String, Number> map) {
+        if (map == null) return Collections.emptyMap();
+        Map<String, BigDecimal> result = new HashMap<>();
+        for (Map.Entry<String, Number> entry : map.entrySet()) {
+            result.put(entry.getKey(), entry.getValue() != null
+                    ? BigDecimal.valueOf(entry.getValue().doubleValue())
+                    : BigDecimal.ZERO);
+        }
+        return result;
     }
 }

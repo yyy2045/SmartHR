@@ -1,12 +1,20 @@
 package com.smarthr.controller;
 
+import com.smarthr.config.JwtAuthenticationFilter.CustomAuthDetails;
 import com.smarthr.dto.*;
 import com.smarthr.entity.InterviewSession;
 import com.smarthr.repository.InterviewSessionRepository;
+import com.smarthr.repository.InterviewReportRepository;
+import com.smarthr.repository.JobRepository;
+import com.smarthr.repository.ResumeRepository;
 import com.smarthr.service.InterviewService;
+import com.smarthr.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +30,20 @@ public class InterviewController {
     @Autowired
     private InterviewSessionRepository sessionRepository;
 
+    @Autowired
+    private ResumeRepository resumeRepository;
+
+    @Autowired
+    private JobRepository jobRepository;
+
+    @Autowired
+    private InterviewReportRepository interviewReportRepository;
+
+    @Autowired
+    private UserService userService;
+
     @PostMapping("/sessions")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewSessionDTO>> createSession(
             @RequestBody CreateInterviewRequest request,
             @AuthenticationPrincipal UserDetails user) {
@@ -33,6 +54,7 @@ public class InterviewController {
     }
 
     @GetMapping("/sessions")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<java.util.List<InterviewSessionDTO>>> getSessions(
             @RequestParam(required = false) String status) {
 
@@ -49,18 +71,26 @@ public class InterviewController {
             dto.setResumeId(s.getResumeId());
             dto.setStatus(s.getStatus());
             dto.setComplete("COMPLETED".equals(s.getStatus()));
+            // 查询候选人姓名和岗位名称
+            if (s.getResumeId() != null) {
+                resumeRepository.findById(s.getResumeId()).ifPresent(r -> dto.setCandidateName(r.getCandidateName()));
+            }
+            if (s.getJobId() != null) {
+                jobRepository.findById(s.getJobId()).ifPresent(j -> dto.setJobTitle(j.getTitle()));
+            }
             return dto;
         }).collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(UnifiedResponse.success(dtos));
     }
 
     @GetMapping("/sessions/{sessionId}")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewSessionDTO>> getSession(
             @PathVariable String sessionId) {
 
         return sessionRepository.findBySessionId(sessionId)
                 .map(session -> {
-                    Map<String, Object> status = interviewService.getSessionStatus(sessionId);
+                    InterviewSessionDTO status = interviewService.getSessionStatus(sessionId);
                     InterviewSessionDTO dto = new InterviewSessionDTO();
                     dto.setSessionId(sessionId);
                     dto.setJobId(session.getJobId());
@@ -73,6 +103,7 @@ public class InterviewController {
     }
 
     @PostMapping("/sessions/{sessionId}/message")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewSessionDTO>> sendMessage(
             @PathVariable String sessionId,
             @RequestBody SendMessageRequest request) {
@@ -82,6 +113,7 @@ public class InterviewController {
     }
 
     @PostMapping("/sessions/{sessionId}/end")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewReportDTO>> endSession(
             @PathVariable String sessionId) {
 
@@ -90,6 +122,7 @@ public class InterviewController {
     }
 
     @GetMapping("/sessions/{sessionId}/report")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewReportDTO>> getReport(
             @PathVariable String sessionId) {
 
@@ -98,15 +131,29 @@ public class InterviewController {
     }
 
     @PostMapping("/sessions/{sessionId}/resume")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN', 'INTERVIEWER')")
     public ResponseEntity<UnifiedResponse<InterviewSessionDTO>> resumeSession(
             @PathVariable String sessionId) {
 
-        InterviewSessionDTO session = interviewService.resumeSession(sessionId);
+        InterviewSessionDTO session = interviewService.getSessionStatus(sessionId);
         return ResponseEntity.ok(UnifiedResponse.success("Session resumed", session));
     }
 
     private Long getUserId(UserDetails user) {
-        // In production, would query UserService to get user ID by email/username
-        return 1L;
+        if (user == null) return null;
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof CustomAuthDetails) {
+            return ((CustomAuthDetails) auth.getDetails()).getUserId();
+        }
+        // 兜底：从数据库查询
+        com.smarthr.entity.User u = userService.findByEmail(user.getUsername());
+        return u != null ? u.getId() : null;
+    }
+
+    @GetMapping("/reports/stats/count")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
+    public ResponseEntity<UnifiedResponse<Long>> countReportsGenerated() {
+        long count = interviewReportRepository.count();
+        return ResponseEntity.ok(UnifiedResponse.success(count));
     }
 }

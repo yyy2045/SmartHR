@@ -1,18 +1,23 @@
 package com.smarthr.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smarthr.config.JwtAuthenticationFilter.CustomAuthDetails;
 import com.smarthr.dto.MatchResultDTO;
 import com.smarthr.dto.ParsedResumeDTO;
 import com.smarthr.dto.UnifiedResponse;
 import com.smarthr.entity.Resume;
 import com.smarthr.repository.ResumeRepository;
 import com.smarthr.service.ResumeAIService;
+import com.smarthr.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -39,12 +44,17 @@ public class ResumeController {
     @Autowired
     private com.smarthr.repository.JobRepository jobRepository;
 
+    @Autowired
+    private UserService userService;
+
     private final String uploadDir = "./uploads/resumes";
 
     @PostMapping("/upload")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public ResponseEntity<UnifiedResponse<Resume>> uploadResume(
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "jobId", required = false) Long jobId,
+            @RequestParam(value = "candidateName", required = false) String candidateName,
             @AuthenticationPrincipal UserDetails user) {
 
         try {
@@ -89,8 +99,15 @@ public class ResumeController {
             resume.setRawText(rawText);
             resume.setJobId(jobId);
             resume.setStatus("UPLOADED");
+            // 设置公司ID
+            resume.setCompanyId(getUserCompanyId());
 
-            // 如果解析成功，填充结构化数据
+            // 如果传入了候选人姓名，先设置
+            if (candidateName != null && !candidateName.isEmpty()) {
+                resume.setCandidateName(candidateName);
+            }
+
+            // 如果解析成功，填充结构化数据（解析的姓名会覆盖传入的）
             if (parsed != null) {
                 resume.setCandidateName(parsed.getCandidateName());
                 resume.setEmail(parsed.getEmail());
@@ -115,8 +132,12 @@ public class ResumeController {
             @PageableDefault(size = 20) Pageable pageable) {
 
         Page<Resume> resumes;
+        Long userCompanyId = getUserCompanyId();
         if (jobId != null) {
             resumes = resumeRepository.findByJobId(jobId, pageable);
+        } else if (userCompanyId != null) {
+            // 普通用户只能看自己公司的简历
+            resumes = resumeRepository.findByCompanyId(userCompanyId, pageable);
         } else {
             resumes = resumeRepository.findAll(pageable);
         }
@@ -132,6 +153,7 @@ public class ResumeController {
     }
 
     @PostMapping("/{id}/parse")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public ResponseEntity<UnifiedResponse<ParsedResumeDTO>> parseResume(@PathVariable Long id) {
         try {
             Resume resume = resumeRepository.findById(id)
@@ -163,6 +185,7 @@ public class ResumeController {
     }
 
     @PostMapping("/{id}/match")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public ResponseEntity<UnifiedResponse<MatchResultDTO>> matchResume(
             @PathVariable Long id,
             @RequestParam Long jobId) {
@@ -222,6 +245,7 @@ public class ResumeController {
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('HR', 'ADMIN')")
     public ResponseEntity<UnifiedResponse<String>> deleteResume(@PathVariable Long id) {
         try {
             resumeRepository.deleteById(id);
@@ -230,5 +254,20 @@ public class ResumeController {
             return ResponseEntity.internalServerError()
                     .body(UnifiedResponse.error("Failed to delete resume: " + e.getMessage()));
         }
+    }
+
+    @GetMapping("/stats/count-this-week")
+    public ResponseEntity<UnifiedResponse<Long>> countResumesThisWeek() {
+        java.time.LocalDateTime weekAgo = java.time.LocalDateTime.now().minusDays(7);
+        long count = resumeRepository.findByCreatedAtAfter(weekAgo).size();
+        return ResponseEntity.ok(UnifiedResponse.success(count));
+    }
+
+    private Long getUserCompanyId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getDetails() instanceof CustomAuthDetails) {
+            return ((CustomAuthDetails) auth.getDetails()).getCompanyId();
+        }
+        return null;
     }
 }

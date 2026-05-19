@@ -12,10 +12,23 @@ class VectorStoreService:
     """Chroma 向量数据库服务"""
 
     def __init__(self):
-        self.client = chromadb.Client(Settings(
-            persist_directory=settings.chroma_persist_directory,
-            anonymized_telemetry=False
-        ))
+        # 优先使用 HTTP 客户端连接 Docker Chroma Server
+        # fallback to embedded mode if HTTP fails
+        try:
+            self.client = chromadb.HttpClient(
+                host=settings.chroma_host,
+                port=settings.chroma_port
+            )
+            # verify connection
+            self.client.heartbeat()
+            self._use_http = True
+        except Exception:
+            # Fallback to embedded mode
+            self.client = chromadb.Client(Settings(
+                persist_directory=settings.chroma_persist_directory,
+                anonymized_telemetry=False
+            ))
+            self._use_http = False
 
     def create_collection(self, name: str, metadata: Optional[Dict] = None):
         """创建或获取集合"""
