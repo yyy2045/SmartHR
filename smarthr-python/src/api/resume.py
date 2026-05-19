@@ -1,5 +1,5 @@
 """
-Resume API - Resume parsing and matching endpoints
+简历 API - 简历解析与匹配接口
 """
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -7,20 +7,25 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
 
-router = APIRouter(prefix="/api/resume", tags=["resume"])
+router = APIRouter(prefix="/api/resume", tags=["简历"])
 
 
 class ResumeParseRequest(BaseModel):
+    """简历解析请求"""
     raw_text: str
 
 
 class ResumeMatchRequest(BaseModel):
+    """简历匹配请求"""
     resume_id: str
     job_id: str
     resume_text: str
+    job_text: Optional[str] = ""
+    parsed_resume: Optional[Dict[str, Any]] = None
 
 
 class ParsedResume(BaseModel):
+    """解析后的简历数据"""
     candidate_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
@@ -33,40 +38,41 @@ class ParsedResume(BaseModel):
 @router.post("/upload")
 async def upload_resume(file: UploadFile = File(...)):
     """
-    Upload and parse a resume file (PDF or Word)
-    Extract text and parse into structured data using LLM
+    上传并解析简历文件（PDF 或 Word）
+    使用 LLM 从文本中提取结构化数据
     """
     from src.services.resume_parser import resume_parser
 
-    # Validate file type
+    # 验证文件类型
     allowed_types = ["application/pdf", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"]
     if file.content_type not in allowed_types:
-        raise HTTPException(status_code=400, detail=f"Unsupported file type: {file.content_type}")
+        raise HTTPException(status_code=400, detail=f"不支持的文件类型: {file.content_type}")
 
-    # Read file content
+    # 读取文件内容
     content = await file.read()
 
-    # Generate resume ID
+    # 生成简历 ID
     resume_id = str(uuid.uuid4())
 
     try:
-        # Parse the resume
-        parsed = await resume_parser.parse_with_file_content(file.filename, content)
+        # 解析简历，获取原始文本和结构化数据
+        parsed, raw_text = await resume_parser.parse_with_file_content(file.filename, content)
 
         return {
             "resume_id": resume_id,
             "status": "parsed",
             "data": parsed,
+            "raw_text": raw_text,
             "file_name": file.filename
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse resume: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"简历解析失败: {str(e)}")
 
 
 @router.post("/parse")
 async def parse_resume(request: ResumeParseRequest):
     """
-    Parse resume raw text into structured data using LLM
+    使用 LLM 将简历原文解析为结构化数据
     """
     from src.services.resume_parser import resume_parser
 
@@ -77,13 +83,13 @@ async def parse_resume(request: ResumeParseRequest):
             "data": parsed
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse resume: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"简历解析失败: {str(e)}")
 
 
 @router.post("/match")
 async def match_resume(request: ResumeMatchRequest):
     """
-    Match resume against job description using RAG
+    使用 RAG 将简历与岗位描述进行匹配
     """
     from src.services.rag_matcher import rag_matcher
 
@@ -91,7 +97,9 @@ async def match_resume(request: ResumeMatchRequest):
         result = await rag_matcher.match(
             job_id=request.job_id,
             resume_text=request.resume_text,
-            resume_id=request.resume_id
+            resume_id=request.resume_id,
+            job_text=request.job_text or "",
+            parsed_resume=request.parsed_resume
         )
 
         return {
@@ -103,23 +111,23 @@ async def match_resume(request: ResumeMatchRequest):
             "summary": result.summary
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to match resume: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"简历匹配失败: {str(e)}")
 
 
 @router.get("/{resume_id}")
 async def get_resume(resume_id: str):
-    """Get resume by ID (placeholder - actual implementation calls Java backend)"""
+    """根据 ID 获取简历（占位 - 实际从 Java 后端获取）"""
     return {
         "resume_id": resume_id,
         "status": "not_found",
-        "message": "Resume not found in local cache - retrieve from Java backend"
+        "message": "本地缓存中未找到简历 - 请从 Java 后端获取"
     }
 
 
 @router.post("/index")
 async def index_resume(resume_id: str, resume_text: str, parsed_data: Optional[Dict[str, Any]] = None):
     """
-    Index a resume into the vector store for RAG matching
+    将简历索引到向量数据库用于 RAG 匹配
     """
     from src.services.rag_matcher import rag_matcher
 
@@ -131,13 +139,13 @@ async def index_resume(resume_id: str, resume_text: str, parsed_data: Optional[D
 
         return {"status": "indexed", "resume_id": resume_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to index resume: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"简历索引失败: {str(e)}")
 
 
 @router.post("/jd/index")
 async def index_job(job_id: str, jd_text: str, metadata: Optional[Dict[str, Any]] = None):
     """
-    Index a job description into the vector store
+    将岗位描述索引到向量数据库
     """
     from src.services.rag_matcher import rag_matcher
 
@@ -145,4 +153,4 @@ async def index_job(job_id: str, jd_text: str, metadata: Optional[Dict[str, Any]
         await rag_matcher.index_job(job_id, jd_text, metadata)
         return {"status": "indexed", "job_id": job_id}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to index job: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"岗位索引失败: {str(e)}")

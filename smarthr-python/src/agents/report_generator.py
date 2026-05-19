@@ -1,5 +1,5 @@
 """
-Report Generator Agent - Cross-validates and generates final interview report
+报告生成智能体 - 交叉验证并生成最终面试报告
 """
 
 from typing import Dict, Any
@@ -7,22 +7,22 @@ from src.services.llm_service import llm_service
 
 
 class ReportGeneratorAgent:
-    """Report generator agent - produces final evaluation report"""
+    """报告生成智能体 - 生成最终评估报告"""
 
     def __init__(self):
         self.llm = llm_service
 
     def process(self, state: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate the final interview report"""
+        """生成最终面试报告"""
         session_id = state.get("session_id", "")
         skill_scores = state.get("skill_scores", {})
         behavior_scores = state.get("behavior_scores", {})
         messages = state.get("messages", [])
 
-        # Cross-validate scores
+        # 交叉验证分数
         validated_scores = self.cross_validate(skill_scores, behavior_scores)
 
-        # Generate the report
+        # 生成报告
         report = self.generate_report(state, validated_scores)
 
         state["report_data"] = report
@@ -33,69 +33,69 @@ class ReportGeneratorAgent:
 
     def cross_validate(self, skill_scores: Dict[str, float],
                        behavior_scores: Dict[str, float]) -> Dict[str, Any]:
-        """Cross-validate scores from different agents to detect inconsistencies"""
-        prompt = f"""Cross-validate the following interview evaluation scores:
+        """交叉验证来自不同智能体的分数，检测不一致性"""
+        prompt = f"""交叉验证以下面试评估分数：
 
-        Skill Scores: {skill_scores}
-        Behavior Scores: {behavior_scores}
+技能分数: {skill_scores}
+行为分数: {behavior_scores}
 
-        Check for:
-        1. Major contradictions (e.g., high technical but very low communication)
-        2. Inconsistent patterns
-        3. Missing evaluations
+检查：
+1. 主要矛盾（例如：技术很高但沟通很低）
+2. 不一致的模式
+3. 缺失的评估
 
-        Return a JSON with:
-        - validated_skill_score: adjusted technical score
-        - validated_behavior_score: adjusted behavior score
-        - contradictions: list of detected issues
-        - confidence: how confident we are in this evaluation (0-100)"""
+返回一个 JSON 对象，包含：
+- validated_skill_score: 调整后的技术分数
+- validated_behavior_score: 调整后的行为分数
+- contradictions: 检测到的问题列表
+- confidence: 我们对此评估的置信度（0-100）"""
 
-        result = self.llm.generate(prompt, system_prompt="You are an expert interview analyst.")
+        result = self.llm.generate(prompt, system_prompt="你是一个专业的面试分析师。")
         return self._parse_cross_validation(result)
 
     def generate_report(self, state: Dict[str, Any], validated_scores: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate final interview report"""
+        """生成最终面试报告"""
         session_id = state.get("session_id", "")
         skill_scores = state.get("skill_scores", {})
         behavior_scores = state.get("behavior_scores", {})
         messages = state.get("messages", [])
 
-        # Build conversation summary
+        # 构建对话摘要
         conversation_summary = "\n".join([
             f"{msg.get('role', '')}: {msg.get('content', '')[:200]}"
             for msg in messages[-10:]
         ])
 
-        prompt = f"""Generate a comprehensive interview report:
+        prompt = f"""生成一份综合面试报告：
 
-        Session ID: {session_id}
-        Technical Skills: {skill_scores}
-        Behavioral Scores: {behavior_scores}
-        Validated Scores: {validated_scores}
+会话 ID: {session_id}
+技术技能: {skill_scores}
+行为分数: {behavior_scores}
+验证后的分数: {validated_scores}
 
-        Conversation Summary:
-        {conversation_summary}
+对话摘要：
+{conversation_summary}
 
-        Generate a detailed report with:
-        1. overall_score (0-100): Weighted average of skill and behavior
-        2. skill_score (0-100): Technical evaluation
-        3. behavior_score (0-100): Soft skills evaluation
-        4. recommendation: STRONG_HIRE, HIRE, NO_HIRE, or WEAK_NO_HIRE
-        5. summary: Executive summary (2-3 sentences)
-        6. strengths: List of top 3-5 strengths
-        7. concerns: List of 2-4 concerns
-        8. interview_highlights: Key moments from the interview
+生成一份详细报告，包含：
+1. overall_score (0-100): 技能和行为的加权平均
+2. skill_score (0-100): 技术评估
+3. behavior_score (0-100): 软技能评估
+4. recommendation: STRONG_HIRE, HIRE, NO_HIRE, 或 WEAK_NO_HIRE
+5. summary: 执行摘要（2-3 句）
+6. strengths: 3-5 个主要优势列表
+7. concerns: 2-4 个顾虑列表
+8. interview_highlights: 面试中的关键亮点
 
-        Return as JSON."""
+返回 JSON 格式。"""
 
-        result = self.llm.generate(prompt, system_prompt="You are an expert interview report writer.")
+        result = self.llm.generate(prompt, system_prompt="你是一个专业的面试报告撰写专家。")
 
-        # Parse and structure the report
+        # 解析并结构化报告
         report = self._parse_report(result)
         return report
 
     def _parse_cross_validation(self, result: str) -> Dict[str, Any]:
-        """Parse cross-validation result"""
+        """解析交叉验证结果"""
         import json
         import re
 
@@ -114,7 +114,7 @@ class ReportGeneratorAgent:
         }
 
     def _parse_report(self, result: str) -> Dict[str, Any]:
-        """Parse the generated report"""
+        """解析生成的报告"""
         import json
         import re
 
@@ -125,14 +125,14 @@ class ReportGeneratorAgent:
             except json.JSONDecodeError:
                 pass
 
-        # Fallback structure
+        # 降级结构
         return {
             "overall_score": 75,
             "skill_score": 72,
             "behavior_score": 78,
             "recommendation": "HIRE",
-            "summary": "Candidate demonstrates solid technical abilities and good communication skills.",
-            "strengths": ["Strong technical foundation", "Good problem-solving approach", "Clear communication"],
-            "concerns": ["Limited leadership experience", "Could improve strategic thinking"],
+            "summary": "候选人展现出扎实的技术能力和良好的沟通技巧。",
+            "strengths": ["技术基础扎实", "问题解决思路清晰", "沟通表达清晰"],
+            "concerns": ["领导经验有限", "战略思维有待提升"],
             "interview_highlights": []
         }

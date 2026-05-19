@@ -1,21 +1,21 @@
 """
-Knowledge API - Enterprise knowledge base management
+知识库 API - 企业知识库管理
 """
 
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-import uuid
 import io
 
 from src.services.document_processor import document_processor
 from src.services.knowledge_retriever import knowledge_retriever
 from src.services.redis_service import redis_service
 
-router = APIRouter(tags=["knowledge"])
+router = APIRouter(tags=["知识库"])
 
 
 class DocumentUploadResponse(BaseModel):
+    """文档上传响应"""
     document_id: str
     filename: str
     status: str
@@ -24,6 +24,7 @@ class DocumentUploadResponse(BaseModel):
 
 
 class KnowledgeSearchRequest(BaseModel):
+    """知识库搜索请求"""
     query: str
     company_id: Optional[str] = None
     doc_type: Optional[str] = None
@@ -31,12 +32,14 @@ class KnowledgeSearchRequest(BaseModel):
 
 
 class KnowledgeSearchResult(BaseModel):
+    """知识库搜索结果"""
     content: str
     source: str
     similarity: float
 
 
 class DocumentResponse(BaseModel):
+    """文档响应"""
     document_id: str
     title: str
     doc_type: str
@@ -46,23 +49,23 @@ class DocumentResponse(BaseModel):
     chunks: int
 
 
-@router.post("/documents", response_model=DocumentUploadResponse)
+@router.post("/documents/{document_id}", response_model=DocumentUploadResponse)
 async def upload_document(
+    document_id: str,
     file: UploadFile = File(...),
     company_id: str = Form(...),
     doc_type: str = Form(...)  # POLICY, MANUAL, HISTORY, OTHER
 ):
     """
-    Upload a document (PDF, Word, TXT) and vectorize it for knowledge base.
+    上传文档（PDF、Word、TXT）并向量化到知识库
+    UUID 由 Java 生成并通过路径传入
     """
-    # Read file content
+    # 读取文件内容
     content = await file.read()
-
-    # Generate document ID
-    document_id = str(uuid.uuid4())
     filename = file.filename or "unknown"
 
-    # Store metadata in Redis for tracking
+    # 使用从 Java 传入的 UUID
+    # 在 Redis 中存储元数据用于追踪
     metadata = {
         "doc_id": document_id,
         "filename": filename,
@@ -71,9 +74,9 @@ async def upload_document(
         "status": "PROCESSING"
     }
 
-    # Process document asynchronously
+    # 异步处理文档
     try:
-        # Process file content and vectorize
+        # 处理文件内容并向量化
         chunk_ids = await document_processor.process_file_content(
             content=content,
             filename=filename,
@@ -93,8 +96,8 @@ async def upload_document(
         metadata["chunks"] = 0
         metadata["chunk_ids"] = []
 
-    # Save document metadata
-    doc_key = f"doc:{document_id}"
+    # 使用复合键保存文档元数据: doc:{company_id}:{document_id}
+    doc_key = f"doc:{company_id}:{document_id}"
     redis_service.set(doc_key, metadata, expire=None)
 
     return DocumentUploadResponse(
@@ -114,9 +117,9 @@ async def list_documents(
     size: int = 20
 ):
     """
-    List all documents for a company with optional filtering.
+    列出公司的所有文档，支持可选过滤
     """
-    # Get all document keys
+    # 使用复合模式获取所有文档键
     pattern = "doc:*"
     keys = redis_service.keys(pattern)
 
@@ -126,7 +129,7 @@ async def list_documents(
         if not doc or not isinstance(doc, dict):
             continue
 
-        # Filter by company_id and doc_type
+        # 按 company_id 和 doc_type 过滤
         if company_id and doc.get("company_id") != company_id:
             continue
         if doc_type and doc.get("doc_type") != doc_type:
@@ -143,7 +146,7 @@ async def list_documents(
             "uploaded_at": doc.get("uploaded_at", "")
         })
 
-    # Paginate
+    # 分页
     start = (page - 1) * size
     end = start + size
     paginated = documents[start:end]
@@ -157,13 +160,17 @@ async def list_documents(
 
 
 @router.get("/documents/{document_id}", response_model=Dict[str, Any])
-async def get_document(document_id: str):
-    """Get document details"""
-    doc_key = f"doc:{document_id}"
+async def get_document(document_id: str, company_id: Optional[str] = None):
+    """获取文档详情"""
+    # 如果提供了 company_id 则使用复合键，否则尝试旧版键
+    if company_id:
+        doc_key = f"doc:{company_id}:{document_id}"
+    else:
+        doc_key = f"doc:{document_id}"
     doc = redis_service.get(doc_key)
 
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档未找到")
 
     return {
         "document_id": doc.get("doc_id"),
@@ -178,24 +185,28 @@ async def get_document(document_id: str):
 
 
 @router.delete("/documents/{document_id}")
-async def delete_document(document_id: str):
-    """Delete a document and its vectors from knowledge base"""
-    doc_key = f"doc:{document_id}"
+async def delete_document(document_id: str, company_id: Optional[str] = None):
+    """删除文档及其在知识库中的向量"""
+    # 如果提供了 company_id 则使用复合键，否则尝试旧版键
+    if company_id:
+        doc_key = f"doc:{company_id}:{document_id}"
+    else:
+        doc_key = f"doc:{document_id}"
     doc = redis_service.get(doc_key)
 
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档未找到")
 
-    # Delete chunk IDs from vector store
+    # 从向量存储中删除 chunk IDs
     chunk_ids = doc.get("chunk_ids", [])
     if chunk_ids:
         try:
             from src.services.vector_store import vector_store_service
             vector_store_service.delete("knowledge_base", chunk_ids)
         except Exception as e:
-            print(f"Error deleting vectors: {e}")
+            print(f"删除向量时出错: {e}")
 
-    # Delete from Redis
+    # 从 Redis 删除
     redis_service.delete(doc_key)
 
     return {
@@ -207,26 +218,26 @@ async def delete_document(document_id: str):
 @router.post("/search", response_model=Dict[str, Any])
 async def search_knowledge(request: KnowledgeSearchRequest):
     """
-    Semantic search in knowledge base.
-    Returns relevant document chunks with similarity scores.
+    在知识库中进行语义搜索
+    返回相关文档片段及相似度分数
     """
     if not request.company_id:
-        raise HTTPException(status_code=400, detail="company_id is required")
+        raise HTTPException(status_code=400, detail="company_id 为必填项")
 
     try:
-        # Search by company
+        # 按公司搜索
         results = await knowledge_retriever.search_by_company(
             company_id=request.company_id,
             query=request.query,
             top_k=request.top_k
         )
 
-        # Format results
+        # 格式化结果
         formatted_results = []
         for r in results:
             metadata = r.get("metadata", {})
             distance = r.get("distance", 0)
-            # Convert distance to similarity score (lower distance = higher similarity)
+            # 将距离转换为相似度分数（距离越小相似度越高）
             similarity = max(0, 1 - distance) if distance else 0.85
 
             formatted_results.append({
@@ -243,7 +254,7 @@ async def search_knowledge(request: KnowledgeSearchRequest):
         }
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"搜索失败: {str(e)}")
 
 
 @router.get("/search", response_model=Dict[str, Any])
@@ -254,7 +265,7 @@ async def search_knowledge_get(
     top_k: int = 5
 ):
     """
-    Semantic search in knowledge base (GET version).
+    在知识库中进行语义搜索（GET 版本）
     """
     req = KnowledgeSearchRequest(
         query=query,
@@ -266,28 +277,31 @@ async def search_knowledge_get(
 
 
 @router.post("/documents/{document_id}/reindex")
-async def reindex_document(document_id: str):
+async def reindex_document(document_id: str, company_id: Optional[str] = None):
     """
-    Re-process and re-vectorize a document.
-    Useful when the original processing failed.
+    重新处理和向量化文档
+    用于原始处理失败的情况
     """
-    doc_key = f"doc:{document_id}"
+    if company_id:
+        doc_key = f"doc:{company_id}:{document_id}"
+    else:
+        doc_key = f"doc:{document_id}"
     doc = redis_service.get(doc_key)
 
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="文档未找到")
 
     filename = doc.get("filename", "")
     company_id = doc.get("company_id", "")
     doc_type = doc.get("doc_type", "OTHER")
 
-    # Re-process (would need to re-read file content)
-    # For now, just update status
+    # 重新处理（需要重新读取文件内容）
+    # 目前仅更新状态
     doc["status"] = "REINDEXING"
     redis_service.set(doc_key, doc)
 
     return {
         "status": "reindexing",
         "document_id": document_id,
-        "message": "Document reindexing started"
+        "message": "文档重建索引已启动"
     }

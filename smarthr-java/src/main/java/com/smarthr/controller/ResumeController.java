@@ -36,6 +36,9 @@ public class ResumeController {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private com.smarthr.repository.JobRepository jobRepository;
+
     private final String uploadDir = "./uploads/resumes";
 
     @PostMapping("/upload")
@@ -64,23 +67,38 @@ public class ResumeController {
             Files.copy(file.getInputStream(), filePath);
 
             // Call Python AI service to parse resume
-            String rawText = ""; // Would need to read file - simplified for now
+            String rawText = "";
             ParsedResumeDTO parsed = null;
             try {
                 String parseResult = resumeAIService.uploadAndParseResume(file);
-                // Raw text will be extracted by Python service
+                // 解析 Python 返回的 JSON，获取 rawText 和结构化数据
+                com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(parseResult);
+                rawText = root.has("raw_text") ? root.get("raw_text").asText() : "";
+
+                if (root.has("data")) {
+                    parsed = objectMapper.treeToValue(root.get("data"), ParsedResumeDTO.class);
+                }
             } catch (Exception e) {
-                // If AI parsing fails, still save the resume
+                // 不阻塞简历落库，但要记录原因（Python 服务挂了 / LLM 失败 / 文件格式异常等）
+                System.err.println("[ResumeController] AI 解析失败，将仅保存原始文件：" + e.getMessage());
             }
 
             // Create resume record
             Resume resume = new Resume();
             resume.setFilePath(filePath.toString());
+            resume.setRawText(rawText);
             resume.setJobId(jobId);
             resume.setStatus("UPLOADED");
-            // Note: parsedData and matchScore will be updated after AI processing
 
-            // Get user ID from user details (assuming username is email, need to query)
+            // 如果解析成功，填充结构化数据
+            if (parsed != null) {
+                resume.setCandidateName(parsed.getCandidateName());
+                resume.setEmail(parsed.getEmail());
+                resume.setPhone(parsed.getPhone());
+                resume.setParsedData(objectMapper.writeValueAsString(parsed));
+                resume.setStatus("PARSED");
+            }
+
             resume = resumeRepository.save(resume);
 
             return ResponseEntity.ok(UnifiedResponse.success("Resume uploaded successfully", resume));
@@ -153,12 +171,42 @@ public class ResumeController {
                     .orElseThrow(() -> new RuntimeException("Resume not found"));
 
             String resumeText = resume.getRawText();
-            if (resumeText == null || resumeText.isEmpty()) {
-                return ResponseEntity.badRequest()
-                        .body(UnifiedResponse.error("No raw text available for matching"));
+
+            // 兜底：rawText 为空时尝试从已保存的文件中重新提取
+            if ((resumeText == null || resumeText.isEmpty()) && resume.getFilePath() != null) {
+                java.io.File savedFile = new java.io.File(resume.getFilePath());
+                if (savedFile.exists()) {
+                    try {
+                        resumeText = resumeAIService.extractRawTextFromFile(savedFile);
+                        if (resumeText != null && !resumeText.isEmpty()) {
+                            resume.setRawText(resumeText);
+                            resumeRepository.save(resume);
+                        }
+                    } catch (Exception ex) {
+                        return ResponseEntity.badRequest()
+                                .body(UnifiedResponse.error("简历文本提取失败：" + ex.getMessage()));
+                    }
+                }
             }
 
-            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText);
+            if (resumeText == null || resumeText.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(UnifiedResponse.error("无可用简历文本，请重新上传简历"));
+            }
+
+            // 取出 JD 全文（标题+描述+要求+技能）一并传给 Python，避免 LLM 凭空生成
+            String jobText = jobRepository.findById(jobId).map(j -> {
+                StringBuilder sb = new StringBuilder();
+                if (j.getTitle() != null) sb.append("岗位：").append(j.getTitle()).append("\n");
+                if (j.getDescription() != null) sb.append("描述：").append(j.getDescription()).append("\n");
+                if (j.getRequirements() != null) sb.append("任职要求：").append(j.getRequirements()).append("\n");
+                if (j.getSkills() != null) sb.append("技能：").append(j.getSkills()).append("\n");
+                return sb.toString();
+            }).orElse("");
+
+            String parsedResumeJson = resume.getParsedData();
+
+            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText, jobText, parsedResumeJson);
 
             // Update resume with match score
             resume.setMatchScore(BigDecimal.valueOf(result.getMatchScore()));

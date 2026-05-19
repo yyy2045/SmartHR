@@ -1,6 +1,6 @@
 """
-JD (Job Description) Key Information Extractor
-Extract key skills, experience requirements, education from JD text
+JD（岗位描述）关键信息提取器
+从 JD 文本中提取关键技能、经验要求、学历等
 """
 
 from typing import Dict, Any, List, Optional
@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 
 class JDKeyInfo(BaseModel):
-    """Structured JD key information"""
+    """岗位关键信息结构"""
     skills: List[str] = []
     experience_years: Optional[int] = None
     education: str = ""
@@ -17,29 +17,29 @@ class JDKeyInfo(BaseModel):
 
 
 class JDExtractor:
-    """Extract key information from job descriptions using LLM"""
+    """使用 LLM 从岗位描述中提取关键信息"""
 
     def __init__(self):
         from src.services.llm_service import llm_service
         self.llm = llm_service
 
     def _build_extraction_prompt(self, jd_text: str) -> tuple[str, str]:
-        """Build prompts for JD extraction"""
-        system_prompt = """You are a professional job description analyzer. Extract key information from the JD.
-Return a JSON object with the following fields:
-- skills: List of required technical skills (array of strings, e.g., ["Python", "Java", "SQL"])
-- experience_years: Minimum years of experience required (number), null if not specified
-- education: Minimum education requirement (string, e.g., "Bachelor's in Computer Science")
-- summary: Brief 2-3 sentence summary of the role (string)
-- requirements: List of key job requirements (array of strings)
+        """构建 JD 提取提示"""
+        system_prompt = """你是一个专业的岗位描述分析师。从 JD 中提取关键信息。
+返回包含以下字段的 JSON 对象：
+- skills: 所需技术技能列表（字符串数组，如 ["Python", "Java", "SQL"]）
+- experience_years: 最低工作经验年限（数字），未指定则为 null
+- education: 最低学历要求（字符串，如 "计算机科学学士"）
+- summary: 职位简要 2-3 句 summary（字符串）
+- requirements: 关键岗位要求列表（字符串数组）
 
-Return ONLY the JSON object, no additional text."""
+只返回 JSON 对象，不要添加其他文本。"""
 
-        user_prompt = f"Please analyze this job description and extract key information:\n\n{jd_text[:8000]}"
+        user_prompt = f"请分析此岗位描述并提取关键信息：\n\n{jd_text[:8000]}"
         return system_prompt, user_prompt
 
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
-        """Extract JSON from LLM response"""
+        """从 LLM 响应中提取 JSON"""
         text = text.strip()
 
         if text.startswith("```"):
@@ -67,7 +67,7 @@ Return ONLY the JSON object, no additional text."""
         }
 
     async def extract(self, jd_text: str) -> JDKeyInfo:
-        """Extract key information from JD text"""
+        """从 JD 文本中提取关键信息"""
         system_prompt, user_prompt = self._build_extraction_prompt(jd_text)
         result = self.llm.generate(prompt=user_prompt, system_prompt=system_prompt)
 
@@ -81,5 +81,5 @@ Return ONLY the JSON object, no additional text."""
         )
 
 
-# Global instance
+# 全局实例
 jd_extractor = JDExtractor()

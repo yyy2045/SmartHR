@@ -12,6 +12,9 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 
 @Service
@@ -29,37 +32,61 @@ public class KnowledgeService {
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
     public KnowledgeDocumentDTO uploadDocument(MultipartFile file, String docType, Long companyId) {
-        String url = pythonServiceUrl + "/api/knowledge/documents";
+        // 1. Java generates UUID -贯穿 MySQL/Redis/Chroma 三层
+        String documentId = UUID.randomUUID().toString();
+
+        // 2. Save file locally with UUID naming
+        String originalFilename = file.getOriginalFilename();
+        String extension = "";
+        if (originalFilename != null && originalFilename.contains(".")) {
+            extension = originalFilename.substring(originalFilename.lastIndexOf("."));
+        }
+        Path filePath = Paths.get("/tmp/smarthr-docs/" + documentId + extension);
+        try {
+            Files.createDirectories(filePath.getParent());
+            Files.write(filePath, file.getBytes());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to save file locally: " + e.getMessage());
+        }
+
+        // 3. Call Python with UUID in path
+        String pythonUrl = pythonServiceUrl + "/api/knowledge/documents/" + documentId;
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
 
         org.springframework.util.MultiValueMap<String, Object> body
             = new org.springframework.util.LinkedMultiValueMap<>();
-        body.add("file", file.getResource());
+        body.add("file", filePath.toFile());
         body.add("company_id", companyId.toString());
         body.add("doc_type", docType);
 
         HttpEntity<org.springframework.util.MultiValueMap<String, Object>> entity
             = new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+        ResponseEntity<Map> response = restTemplate.postForEntity(pythonUrl, entity, Map.class);
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             Map<String, Object> body_response = response.getBody();
 
-            // Save to MySQL
+            // 4. Save to MySQL with documentId = UUID
             KnowledgeDocument doc = new KnowledgeDocument();
+            doc.setDocumentId(documentId);  // Use Java-generated UUID
             doc.setTitle((String) body_response.get("title"));
-            doc.setFilename((String) body_response.get("filename"));
+            doc.setFilename(originalFilename);
             doc.setDocType(docType);
             doc.setCompanyId(companyId);
             doc.setIndexedStatus((String) body_response.get("status"));
             doc.setChunks((Integer) body_response.get("chunks"));
+            doc.setFilePath(filePath.toString());
 
             try {
-                String documentId = (String) body_response.get("document_id");
-                doc.setChunkIds(objectMapper.writeValueAsString(Collections.singletonList(documentId)));
+                Object chunkIdsObj = body_response.get("chunk_ids");
+                if (chunkIdsObj instanceof List) {
+                    doc.setChunkIds(objectMapper.writeValueAsString(chunkIdsObj));
+                } else {
+                    doc.setChunkIds("[]");
+                }
             } catch (Exception e) {
                 doc.setChunkIds("[]");
             }
@@ -69,7 +96,7 @@ public class KnowledgeService {
             // Return DTO
             KnowledgeDocumentDTO dto = new KnowledgeDocumentDTO();
             dto.setId(doc.getId());
-            dto.setDocumentId(doc.getId().toString());
+            dto.setDocumentId(doc.getDocumentId());  // Use actual documentId field
             dto.setTitle(doc.getTitle());
             dto.setFilename(doc.getFilename());
             dto.setDocType(doc.getDocType());
@@ -94,7 +121,7 @@ public class KnowledgeService {
         return docs.map(doc -> {
             KnowledgeDocumentDTO dto = new KnowledgeDocumentDTO();
             dto.setId(doc.getId());
-            dto.setDocumentId(doc.getId().toString());
+            dto.setDocumentId(doc.getDocumentId());
             dto.setTitle(doc.getTitle());
             dto.setFilename(doc.getFilename());
             dto.setDocType(doc.getDocType());
@@ -106,11 +133,23 @@ public class KnowledgeService {
         });
     }
 
+    public void reindexDocument(Long id) {
+        documentRepository.findById(id).ifPresent(doc -> {
+            String documentId = doc.getDocumentId();
+            String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId + "/reindex";
+            try {
+                restTemplate.postForEntity(url, null, Map.class);
+            } catch (Exception e) {
+                throw new RuntimeException("Failed to reindex document: " + e.getMessage());
+            }
+        });
+    }
+
     public KnowledgeDocumentDTO getDocument(Long id) {
         return documentRepository.findById(id).map(doc -> {
             KnowledgeDocumentDTO dto = new KnowledgeDocumentDTO();
             dto.setId(doc.getId());
-            dto.setDocumentId(doc.getId().toString());
+            dto.setDocumentId(doc.getDocumentId());
             dto.setTitle(doc.getTitle());
             dto.setFilename(doc.getFilename());
             dto.setDocType(doc.getDocType());
@@ -123,9 +162,9 @@ public class KnowledgeService {
     }
 
     public void deleteDocument(Long id) {
-        // Call Python to delete from vector store
+        // Call Python to delete from vector store - use documentId (UUID), not MySQL id
         documentRepository.findById(id).ifPresent(doc -> {
-            String documentId = doc.getId().toString();
+            String documentId = doc.getDocumentId();  // Java-generated UUID
             String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId;
             try {
                 restTemplate.delete(url);

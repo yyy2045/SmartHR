@@ -1,5 +1,5 @@
 """
-Resume Parser Service - Extract text from PDF/Word and parse with LLM
+简历解析服务 - 从 PDF/Word 提取文本并使用 LLM 解析
 """
 
 import re
@@ -7,7 +7,7 @@ import json
 from typing import Optional, Dict, Any, List
 from pathlib import Path
 
-# Text extraction
+# 文本提取
 try:
     import PyPDF2
 except ImportError:
@@ -20,14 +20,14 @@ except ImportError:
 
 
 class ResumeParser:
-    """Parse resume files (PDF/Word) into structured data using LLM"""
+    """解析简历文件（PDF/Word）为使用 LLM 的结构化数据"""
 
     def __init__(self):
         from src.services.llm_service import llm_service
         self.llm = llm_service
 
     def extract_text_from_file(self, file_path: str) -> str:
-        """Extract raw text from PDF or Word file"""
+        """从 PDF 或 Word 文件提取原始文本"""
         path = Path(file_path)
         suffix = path.suffix.lower()
 
@@ -36,12 +36,12 @@ class ResumeParser:
         elif suffix in [".docx", ".doc"]:
             return self._extract_docx(file_path)
         else:
-            raise ValueError(f"Unsupported file format: {suffix}")
+            raise ValueError(f"不支持的文件格式: {suffix}")
 
     def _extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF using PyPDF2"""
+        """使用 PyPDF2 从 PDF 提取文本"""
         if PyPDF2 is None:
-            raise ImportError("PyPDF2 not installed")
+            raise ImportError("未安装 PyPDF2")
         text = []
         with open(file_path, "rb") as f:
             reader = PyPDF2.PdfReader(f)
@@ -52,51 +52,52 @@ class ResumeParser:
         return "\n".join(text)
 
     def _extract_docx(self, file_path: str) -> str:
-        """Extract text from Word document"""
+        """从 Word 文档提取文本"""
         if Document is None:
-            raise ImportError("python-docx not installed")
+            raise ImportError("未安装 python-docx")
         doc = Document(file_path)
         return "\n".join([para.text for para in doc.paragraphs])
 
     def _build_parsing_prompt(self, raw_text: str) -> tuple[str, str]:
-        """Build system and user prompts for LLM parsing"""
-        system_prompt = """You are a professional resume parser. Extract structured information from the resume text.
-Return a JSON object with the following fields:
-- candidate_name: The person's full name (string)
-- email: Email address (string)
-- phone: Phone number (string)
-- skills: List of technical and soft skills (array of strings)
-- experience: List of work experiences, each with company, title, duration, description (array of objects)
-- education: List of education records with school, degree, field, year (array of objects)
-- summary: Brief 2-3 sentence summary of the candidate (string)
+        """构建 LLM 解析的系统提示和用户提示"""
+        system_prompt = """你是一个专业的简历解析器。从简历文本中提取结构化信息。
+返回包含以下字段的 JSON 对象（必须使用 snake_case 命名）：
+- candidate_name: 姓名（字符串）
+- email: 电子邮箱（字符串）
+- phone: 电话号码（字符串）
+- skills: 技术技能和软技能列表（字符串数组）
+- experience: 工作经验列表，每个包含 company, title, duration, description（对象数组）
+- education: 教育经历列表，包含 school, degree, major, year（对象数组）
+- summary: 候选人简要 2-3 句 summary（字符串）
 
-Return ONLY the JSON object, no additional text."""
+重要：返回的 JSON 对象必须使用 snake_case 作为 key 名称，例如 candidate_name 而不是 candidateName。
+只返回 JSON 对象，不要添加其他文本。"""
 
-        user_prompt = f"Please parse this resume and return structured data:\n\n{raw_text[:8000]}"
+        user_prompt = f"请解析此简历并返回结构化数据：\n\n{raw_text[:8000]}"
         return system_prompt, user_prompt
 
     async def parse_text(self, raw_text: str) -> Dict[str, Any]:
-        """Parse resume raw text into structured data using LLM"""
+        """使用 LLM 将简历原文解析为结构化数据"""
         system_prompt, user_prompt = self._build_parsing_prompt(raw_text)
         result = self.llm.generate(prompt=user_prompt, system_prompt=system_prompt)
 
-        # Parse LLM response as JSON
+        # 解析 LLM 响应为 JSON
         parsed = self._parse_json_response(result)
         return parsed
 
     def _parse_json_response(self, text: str) -> Dict[str, Any]:
-        """Extract JSON from LLM response"""
-        # Try to find JSON in the response
+        """从 LLM 响应中提取 JSON"""
+        # 尝试从响应中找到 JSON
         text = text.strip()
 
-        # Handle cases where LLM returns markdown code block
+        # 处理 LLM 返回 markdown 代码块的情况
         if text.startswith("```"):
             lines = text.split("\n")
             text = "\n".join(lines[1:-1]) if lines[-1].endswith("```") else "\n".join(lines[1:])
 
         text = text.strip("`")
 
-        # Try to find JSON object
+        # 尝试找到 JSON 对象
         start_idx = text.find("{")
         end_idx = text.rfind("}")
 
@@ -107,7 +108,7 @@ Return ONLY the JSON object, no additional text."""
             except json.JSONDecodeError:
                 pass
 
-        # Fallback: return with summary only
+        # 降级方案：只返回摘要
         return {
             "candidate_name": None,
             "email": None,
@@ -119,18 +120,18 @@ Return ONLY the JSON object, no additional text."""
         }
 
     async def parse(self, file_path: str = None, raw_text: str = None) -> Dict[str, Any]:
-        """Main entry point - parse from file or raw text"""
+        """主要入口方法 - 从文件或原文解析"""
         if file_path:
             text = self.extract_text_from_file(file_path)
         elif raw_text:
             text = raw_text
         else:
-            raise ValueError("Either file_path or raw_text must be provided")
+            raise ValueError("必须提供 file_path 或 raw_text 之一")
 
         return await self.parse_text(text)
 
-    async def parse_with_file_content(self, file_path: str, file_content: bytes) -> Dict[str, Any]:
-        """Parse resume from uploaded file content (bytes)"""
+    async def parse_with_file_content(self, file_path: str, file_content: bytes) -> tuple[Dict[str, Any], str]:
+        """从上传的文件内容（字节）解析简历，返回(解析结果, 原始文本)"""
         import tempfile
         import os
 
@@ -140,10 +141,12 @@ Return ONLY the JSON object, no additional text."""
             tmp_path = tmp.name
 
         try:
-            return await self.parse(file_path=tmp_path)
+            raw_text = self.extract_text_from_file(tmp_path)
+            parsed = await self.parse_text(raw_text)
+            return parsed, raw_text
         finally:
             os.unlink(tmp_path)
 
 
-# Global instance
+# 全局实例
 resume_parser = ResumeParser()

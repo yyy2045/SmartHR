@@ -32,6 +32,28 @@ public class InterviewController {
         return ResponseEntity.ok(UnifiedResponse.success("Interview session created", session));
     }
 
+    @GetMapping("/sessions")
+    public ResponseEntity<UnifiedResponse<java.util.List<InterviewSessionDTO>>> getSessions(
+            @RequestParam(required = false) String status) {
+
+        java.util.List<InterviewSession> sessions;
+        if (status != null && !status.isEmpty()) {
+            sessions = sessionRepository.findByStatus(status);
+        } else {
+            sessions = sessionRepository.findAll();
+        }
+        java.util.List<InterviewSessionDTO> dtos = sessions.stream().map(s -> {
+            InterviewSessionDTO dto = new InterviewSessionDTO();
+            dto.setSessionId(s.getSessionId());
+            dto.setJobId(s.getJobId());
+            dto.setResumeId(s.getResumeId());
+            dto.setStatus(s.getStatus());
+            dto.setComplete("COMPLETED".equals(s.getStatus()));
+            return dto;
+        }).collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.ok(UnifiedResponse.success(dtos));
+    }
+
     @GetMapping("/sessions/{sessionId}")
     public ResponseEntity<UnifiedResponse<InterviewSessionDTO>> getSession(
             @PathVariable String sessionId) {

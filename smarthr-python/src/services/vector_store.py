@@ -1,5 +1,5 @@
 """
-Vector Store Service - Chroma DB wrapper
+向量存储服务 - Chroma DB 封装
 """
 
 import chromadb
@@ -9,7 +9,7 @@ from src.config import settings
 
 
 class VectorStoreService:
-    """Chroma vector database service"""
+    """Chroma 向量数据库服务"""
 
     def __init__(self):
         self.client = chromadb.Client(Settings(
@@ -18,7 +18,7 @@ class VectorStoreService:
         ))
 
     def create_collection(self, name: str, metadata: Optional[Dict] = None):
-        """Create or get a collection"""
+        """创建或获取集合"""
         return self.client.get_or_create_collection(
             name=name,
             metadata=metadata or {}
@@ -32,7 +32,7 @@ class VectorStoreService:
         ids: List[str],
         metadatas: Optional[List[Dict]] = None
     ):
-        """Add documents to collection"""
+        """向集合添加文档"""
         collection = self.create_collection(collection_name)
         collection.add(
             embeddings=embeddings,
@@ -48,14 +48,22 @@ class VectorStoreService:
         top_k: int = 5,
         filters: Optional[Dict] = None
     ) -> List[Dict[str, Any]]:
-        """Search similar documents"""
-        collection = self.client.get_collection(collection_name)
+        """搜索相似文档"""
+        try:
+            collection = self.client.get_collection(collection_name)
+        except Exception:
+            # 集合不存在时返回空结果
+            return []
 
         results = collection.query(
             query_embeddings=[query_embedding],
             n_results=top_k,
             where=filters
         )
+
+        # 处理空结果
+        if not results["ids"] or not results["ids"][0]:
+            return []
 
         return [
             {
@@ -68,7 +76,7 @@ class VectorStoreService:
         ]
 
     def delete(self, collection_name: str, ids: List[str]):
-        """Delete documents from collection"""
+        """从集合中删除文档"""
         collection = self.client.get_collection(collection_name)
         collection.delete(ids=ids)
 
@@ -80,7 +88,7 @@ class VectorStoreService:
         embeddings: Optional[List[List[float]]] = None,
         metadata: Optional[List[Dict]] = None
     ):
-        """Update documents in collection"""
+        """更新集合中的文档"""
         collection = self.client.get_collection(collection_name)
         collection.update(
             ids=ids,
@@ -90,13 +98,13 @@ class VectorStoreService:
         )
 
     def delete_collection(self, name: str):
-        """Delete a collection"""
+        """删除集合"""
         self.client.delete_collection(name)
 
     def list_collections(self) -> List[str]:
-        """List all collections"""
+        """列出所有集合"""
         return [col.name for col in self.client.list_collections()]
 
 
-# Global instance
+# 全局实例
 vector_store_service = VectorStoreService()

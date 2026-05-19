@@ -4,15 +4,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smarthr.dto.*;
 import com.smarthr.entity.InterviewReport;
 import com.smarthr.entity.InterviewSession;
+import com.smarthr.entity.Job;
+import com.smarthr.entity.Resume;
 import com.smarthr.repository.InterviewReportRepository;
 import com.smarthr.repository.InterviewSessionRepository;
+import com.smarthr.repository.JobRepository;
+import com.smarthr.repository.ResumeRepository;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.ResourceAccessException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.util.*;
 
 @Service
@@ -28,11 +37,44 @@ public class InterviewService {
     private InterviewReportRepository reportRepository;
 
     @Autowired
+    private JobRepository jobRepository;
+
+    @Autowired
+    private ResumeRepository resumeRepository;
+
+    @Autowired
     private ObjectMapper objectMapper;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    private RestTemplate restTemplate;
+
+    @PostConstruct
+    public void initRestTemplate() {
+        // Python 端的 LLM 调用最长 120s，这里设为 180s 给总超时留余量
+        this.restTemplate = new RestTemplateBuilder()
+                .setConnectTimeout(Duration.ofSeconds(10))
+                .setReadTimeout(Duration.ofSeconds(180))
+                .build();
+    }
 
     public InterviewSessionDTO createSession(CreateInterviewRequest request, Long userId) {
+        if (request == null || request.getJobId() == null || request.getResumeId() == null) {
+            throw new RuntimeException("jobId 和 resumeId 不能为空");
+        }
+
+        // 自动从数据库补充 jobDescription / resumeText（前端通常只传 ID）
+        String jobDescription = request.getJobDescription();
+        if (jobDescription == null || jobDescription.isEmpty()) {
+            jobDescription = jobRepository.findById(request.getJobId())
+                    .map(this::buildJobDescription)
+                    .orElse("");
+        }
+        String resumeText = request.getResumeText();
+        if (resumeText == null || resumeText.isEmpty()) {
+            resumeText = resumeRepository.findById(request.getResumeId())
+                    .map(Resume::getRawText)
+                    .orElse("");
+        }
+
         String url = pythonServiceUrl + "/api/interview/sessions";
 
         HttpHeaders headers = new HttpHeaders();
@@ -41,40 +83,60 @@ public class InterviewService {
         Map<String, Object> body = new HashMap<>();
         body.put("job_id", request.getJobId().toString());
         body.put("resume_id", request.getResumeId().toString());
-        body.put("job_description", request.getJobDescription());
-        body.put("resume_text", request.getResumeText());
+        body.put("job_description", jobDescription);
+        body.put("resume_text", resumeText);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
-
-        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            Map<String, Object> body_response = response.getBody();
-
-            // Save session to MySQL
-            InterviewSession session = new InterviewSession();
-            session.setSessionId((String) body_response.get("session_id"));
-            session.setJobId(request.getJobId());
-            session.setResumeId(request.getResumeId());
-            session.setUserId(userId);
-            session.setStatus("IN_PROGRESS");
-            session = sessionRepository.save(session);
-
-            // Return DTO
-            InterviewSessionDTO dto = new InterviewSessionDTO();
-            dto.setSessionId((String) body_response.get("session_id"));
-            dto.setJobId(request.getJobId());
-            dto.setResumeId(request.getResumeId());
-            dto.setStatus("IN_PROGRESS");
-            dto.setComplete(false);
-
-            Map<String, Object> question = (Map<String, Object>) body_response.get("question");
-            dto.setCurrentQuestion(question);
-
-            return dto;
+        Map<String, Object> body_response;
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                throw new RuntimeException("AI 服务返回异常状态: " + response.getStatusCode());
+            }
+            body_response = response.getBody();
+        } catch (ResourceAccessException e) {
+            throw new RuntimeException("无法连接 AI 服务（请检查 Python 服务是否启动 / 网络是否通畅）: " + e.getMessage());
+        } catch (RestClientException e) {
+            throw new RuntimeException("调用 AI 服务失败: " + e.getMessage());
         }
 
-        throw new RuntimeException("Failed to create interview session");
+        String returnedSessionId = (String) body_response.get("session_id");
+        if (returnedSessionId == null || returnedSessionId.isEmpty()) {
+            throw new RuntimeException("AI 服务未返回 session_id");
+        }
+
+        // Save session to MySQL
+        InterviewSession session = new InterviewSession();
+        session.setSessionId(returnedSessionId);
+        session.setJobId(request.getJobId());
+        session.setResumeId(request.getResumeId());
+        session.setUserId(userId);
+        session.setStatus("IN_PROGRESS");
+        sessionRepository.save(session);
+
+        // Return DTO
+        InterviewSessionDTO dto = new InterviewSessionDTO();
+        dto.setSessionId(returnedSessionId);
+        dto.setJobId(request.getJobId());
+        dto.setResumeId(request.getResumeId());
+        dto.setStatus("IN_PROGRESS");
+        dto.setComplete(false);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> question = (Map<String, Object>) body_response.get("question");
+        dto.setCurrentQuestion(question);
+
+        return dto;
+    }
+
+    private String buildJobDescription(Job job) {
+        StringBuilder sb = new StringBuilder();
+        if (job.getTitle() != null) sb.append("岗位：").append(job.getTitle()).append("\n");
+        if (job.getDescription() != null) sb.append("描述：").append(job.getDescription()).append("\n");
+        if (job.getRequirements() != null) sb.append("任职要求：").append(job.getRequirements()).append("\n");
+        if (job.getSkills() != null) sb.append("技能：").append(job.getSkills()).append("\n");
+        return sb.toString();
     }
 
     public InterviewSessionDTO sendMessage(String sessionId, String message) {
@@ -88,23 +150,38 @@ public class InterviewService {
 
         HttpEntity<Map<String, String>> entity = new HttpEntity<>(body, headers);
 
-        ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
-
-        if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
-            Map<String, Object> body_response = response.getBody();
-
-            InterviewSessionDTO dto = new InterviewSessionDTO();
-            dto.setSessionId(sessionId);
-            dto.setStatus((String) body_response.get("status"));
-            dto.setComplete((Boolean) body_response.get("is_complete"));
-
-            Map<String, Object> question = (Map<String, Object>) body_response.get("question");
-            dto.setCurrentQuestion(question);
-
-            return dto;
+        Map<String, Object> body_response;
+        try {
+            ResponseEntity<Map> response = restTemplate.postForEntity(url, entity, Map.class);
+            if (response.getStatusCode() != HttpStatus.OK || response.getBody() == null) {
+                throw new RuntimeException("AI 服务返回异常状态: " + response.getStatusCode());
+            }
+            body_response = response.getBody();
+        } catch (ResourceAccessException e) {
+            throw new RuntimeException("无法连接 AI 服务: " + e.getMessage());
+        } catch (RestClientException e) {
+            throw new RuntimeException("调用 AI 服务失败: " + e.getMessage());
         }
 
-        throw new RuntimeException("Failed to send message");
+        InterviewSessionDTO dto = new InterviewSessionDTO();
+        dto.setSessionId(sessionId);
+        dto.setStatus((String) body_response.getOrDefault("status", "IN_PROGRESS"));
+        Object completeObj = body_response.get("is_complete");
+        dto.setComplete(completeObj instanceof Boolean ? (Boolean) completeObj : false);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> question = (Map<String, Object>) body_response.get("question");
+        dto.setCurrentQuestion(question);
+
+        // 如果 Python 端已标记完成，同步更新 MySQL session 状态
+        if (dto.isComplete()) {
+            sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
+                s.setStatus("COMPLETED");
+                sessionRepository.save(s);
+            });
+        }
+
+        return dto;
     }
 
     public InterviewReportDTO endSession(String sessionId) {

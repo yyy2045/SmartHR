@@ -66,6 +66,12 @@ public class KnowledgeController {
         return ResponseEntity.ok(UnifiedResponse.success("Document deleted", null));
     }
 
+    @PostMapping("/documents/{id}/reindex")
+    public ResponseEntity<UnifiedResponse<String>> reindexDocument(@PathVariable Long id) {
+        knowledgeService.reindexDocument(id);
+        return ResponseEntity.ok(UnifiedResponse.success("Reindex started", null));
+    }
+
     @GetMapping("/search")
     public ResponseEntity<UnifiedResponse<List<KnowledgeSearchResultDTO>>> searchKnowledge(
             @RequestParam String query,

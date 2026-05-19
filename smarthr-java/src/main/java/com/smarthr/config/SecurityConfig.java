@@ -39,8 +39,29 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
+                        // 1. 放行登录、注册、健康检查接口
                         .requestMatchers("/api/auth/**", "/health", "/api/health").permitAll()
+
+                        // 2. 修复版：严格符合 Spring Boot 3 标准的文档放行路径
+                        .requestMatchers(
+                                "/doc.html",               // 根路径下的 knife4j
+                                "/api/doc.html",           // api 前缀下的 knife4j
+                                "/swagger-ui.html",        // 根路径下的 swagger
+                                "/api/swagger-ui.html",    // api 前缀下的 swagger
+                                "/swagger-ui/**",          // 静态资源
+                                "/api/swagger-ui/**",
+                                "/v3/api-docs/**",         // 接口数据
+                                "/api/v3/api-docs/**",
+                                "/swagger-resources/**",
+                                "/webjars/**",
+                                "/swagger-ui/index.html",  // springdoc-openapi
+                                "/api/swagger-ui/index.html"
+                        ).permitAll()
+
+                        // 3. 其他所有 /api/** 的业务接口必须登录认证
                         .requestMatchers("/api/**").authenticated()
+
+                        // 4. 剩下的杂项请求（如静态资源等）直接放行
                         .anyRequest().permitAll()
                 )
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
@@ -53,9 +74,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(Arrays.asList("*"));
+        // 允许具体来源，不能用 * 当 withCredentials=true
+        configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:*", "http://127.0.0.1:*"));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowCredentials(true);  // 允许携带凭证
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;

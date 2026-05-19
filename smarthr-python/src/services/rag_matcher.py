@@ -1,5 +1,5 @@
 """
-RAG Matcher - Vectorize resumes and jobs, perform semantic matching
+RAG 匹配器 - 对简历和岗位进行向量化和语义匹配
 """
 
 import math
@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 
 class MatchResult(BaseModel):
-    """Match result for a single resume"""
+    """单份简历的匹配结果"""
     resume_id: str
     score: float  # 0-100
     matching_points: List[Dict[str, Any]] = []
@@ -17,7 +17,7 @@ class MatchResult(BaseModel):
 
 
 class RAGMatcher:
-    """RAG-based resume matching using Chroma vector store"""
+    """基于 Chroma 向量存储的 RAG 简历匹配"""
 
     def __init__(self):
         from src.services.vector_store import vector_store_service
@@ -27,7 +27,7 @@ class RAGMatcher:
         self._embeddings = None
 
     def _get_embeddings(self):
-        """Lazy load embeddings (OpenAI-compatible format for DeepSeek)"""
+        """延迟加载嵌入向量（DeepSeek 的 OpenAI 兼容格式）"""
         if self._embeddings is None:
             from langchain_community.embeddings import OpenAIEmbeddings
             from src.config import settings
@@ -35,12 +35,12 @@ class RAGMatcher:
             self._embeddings = OpenAIEmbeddings(
                 api_key=settings.deepseek_api_key,
                 base_url=f"{settings.deepseek_base_url}/v1/embeddings",
-                model="deepseek-embed"
+                model="text-embedding-3-small"
             )
         return self._embeddings
 
     def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """Calculate cosine similarity between two vectors"""
+        """计算两个向量的余弦相似度"""
         dot = sum(a * b for a, b in zip(vec1, vec2))
         norm1 = math.sqrt(sum(a * a for a in vec1))
         norm2 = math.sqrt(sum(b * b for b in vec2))
@@ -49,7 +49,7 @@ class RAGMatcher:
         return dot / (norm1 * norm2)
 
     def _vector_to_list(self, embedding) -> List[float]:
-        """Convert embedding to list of floats"""
+        """将嵌入向量转换为浮点数列表"""
         if hasattr(embedding, 'tolist'):
             return embedding.tolist()
         elif isinstance(embedding, list):
@@ -57,7 +57,7 @@ class RAGMatcher:
         return list(embedding)
 
     async def index_resume(self, resume_id: str, text: str, metadata: Optional[Dict] = None):
-        """Vectorize and store resume text in Chroma"""
+        """将简历文本向量化和存储到 Chroma"""
         embeddings = self._get_embeddings()
         embedding_vec = embeddings.embed_query(text)
         embedding_list = self._vector_to_list(embedding_vec)
@@ -74,7 +74,7 @@ class RAGMatcher:
         )
 
     async def index_job(self, job_id: str, jd_text: str, metadata: Optional[Dict] = None):
-        """Vectorize and store job description in Chroma"""
+        """将岗位描述向量化和存储到 Chroma"""
         embeddings = self._get_embeddings()
         embedding_vec = embeddings.embed_query(jd_text)
         embedding_list = self._vector_to_list(embedding_vec)
@@ -92,7 +92,7 @@ class RAGMatcher:
 
     async def search_resumes(self, query_text: str, top_k: int = 10,
                              filter_metadata: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """Search resumes by text query"""
+        """根据文本查询搜索简历"""
         embeddings = self._get_embeddings()
         query_vec = embeddings.embed_query(query_text)
         query_list = self._vector_to_list(query_vec)
@@ -101,12 +101,12 @@ class RAGMatcher:
             collection_name="resumes",
             query_embedding=query_list,
             top_k=top_k,
-            filter_metadata=filter_metadata
+            filters=filter_metadata
         )
 
     async def search_jobs(self, query_text: str, top_k: int = 10,
                           filter_metadata: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """Search jobs by text query"""
+        """根据文本查询搜索岗位"""
         embeddings = self._get_embeddings()
         query_vec = embeddings.embed_query(query_text)
         query_list = self._vector_to_list(query_vec)
@@ -115,52 +115,147 @@ class RAGMatcher:
             collection_name="jobs",
             query_embedding=query_list,
             top_k=top_k,
-            filter_metadata=filter_metadata
+            filters=filter_metadata
         )
 
     async def match(self, job_id: str, resume_text: str,
-                    resume_id: Optional[str] = None) -> MatchResult:
-        """Match a resume against a job description"""
-        # Search for similar resumes using the job as query
-        similar = await self.search_resumes(resume_text, top_k=5)
+                    resume_id: Optional[str] = None,
+                    job_text: str = "",
+                    parsed_resume: Optional[Dict[str, Any]] = None) -> MatchResult:
+        """将简历与岗位描述进行匹配
 
-        # Calculate match score based on similarity
-        score = 75.0  # Default score
-        if similar:
-            # Use the highest similarity as the base score
-            # Chroma returns distances, convert to similarity (0-1 range)
-            best_dist = similar[0].get("distance", 1.0)
-            # Convert distance to similarity (roughly 0-1)
-            similarity = max(0, 1.0 - best_dist)
-            score = min(100, 50 + similarity * 50)  # Scale 0-1 to 50-100
+        参数:
+            job_id: 岗位 ID
+            resume_text: 简历原文（中文/英文均可）
+            resume_id: 简历 ID
+            job_text: 岗位描述全文（标题+描述+要求+技能）。若为空则 LLM 部分会跳过
+            parsed_resume: 已结构化的简历数据，包含 skills/experience/education 等。
+                若提供则用其替代 resume_text 全文喂 LLM，大幅降低 token
+        """
+        from src.services.redis_service import redis_service
 
-        # Generate match details using LLM
-        matching_points, risk_points = await self._generate_match_details(
-            job_text=f"Job ID: {job_id}",
-            resume_text=resume_text
-        )
+        # 结果缓存：相同 (job_id, resume_id) 24h 内复用，避免重复点击烧 token
+        cache_key = f"match:{job_id}:{resume_id or 'none'}"
+        try:
+            cached = redis_service.get(cache_key)
+            if cached and isinstance(cached, dict) and "score" in cached:
+                return MatchResult(**cached)
+        except Exception as e:
+            print(f"[rag_matcher] cache read failed: {e}")
 
-        return MatchResult(
+        # 关键词匹配打分（同时支持中英文）
+        job_keywords = self._extract_keywords(job_text)
+        resume_keywords = self._extract_keywords(resume_text)
+
+        score = 75.0
+        if job_keywords and resume_keywords:
+            match_count = sum(1 for kw in job_keywords if kw in resume_keywords)
+            keyword_score = (match_count / max(len(job_keywords), 1)) * 30
+            score = 60.0 + keyword_score  # 60-90 分
+
+        # LLM 生成匹配点和风险点（只有当 job_text 非空时才调用，避免无意义的 token 消耗）
+        matching_points: List[Dict[str, Any]] = []
+        risk_points: List[Dict[str, Any]] = []
+
+        if job_text and job_text.strip():
+            try:
+                # 优先用结构化字段（token 仅 200~500），退回到截短的原文
+                resume_brief = self._build_resume_brief(parsed_resume, resume_text)
+                matching_points, risk_points = await self._generate_match_details(
+                    job_text=job_text[:1500],
+                    resume_brief=resume_brief
+                )
+            except Exception as e:
+                print(f"[rag_matcher] LLM match details failed: {e}")
+
+        result = MatchResult(
             resume_id=resume_id or "unknown",
             score=round(score, 1),
             matching_points=matching_points,
             risk_points=risk_points,
-            summary=f"Resume matches job with score {score:.1f}/100"
+            summary=f"简历与岗位匹配分数 {score:.1f}/100"
         )
 
+        # 写入缓存（24h）
+        try:
+            redis_service.set(cache_key, result.model_dump(), expire=86400)
+        except Exception as e:
+            print(f"[rag_matcher] cache write failed: {e}")
+
+        return result
+
+    def _build_resume_brief(self, parsed_resume: Optional[Dict[str, Any]],
+                            resume_text: str) -> str:
+        """优先用结构化的简历摘要，降低喂给 LLM 的 token"""
+        if parsed_resume and isinstance(parsed_resume, dict):
+            parts = []
+            name = parsed_resume.get("candidate_name") or ""
+            if name:
+                parts.append(f"姓名：{name}")
+            skills = parsed_resume.get("skills") or []
+            if skills:
+                parts.append(f"技能：{', '.join(str(s) for s in skills[:30])}")
+            exp = parsed_resume.get("experience") or []
+            if exp:
+                exp_lines = []
+                for e in exp[:5]:
+                    if isinstance(e, dict):
+                        exp_lines.append(
+                            f"- {e.get('title','')} @ {e.get('company','')} "
+                            f"({e.get('duration','')}): {(e.get('description') or '')[:120]}"
+                        )
+                if exp_lines:
+                    parts.append("经历：\n" + "\n".join(exp_lines))
+            edu = parsed_resume.get("education") or []
+            if edu:
+                edu_lines = []
+                for e in edu[:3]:
+                    if isinstance(e, dict):
+                        edu_lines.append(
+                            f"- {e.get('degree','')} {e.get('major','')} @ {e.get('school','')} ({e.get('year','')})"
+                        )
+                if edu_lines:
+                    parts.append("教育：\n" + "\n".join(edu_lines))
+            summary = parsed_resume.get("summary")
+            if summary:
+                parts.append(f"概要：{summary[:200]}")
+            if parts:
+                return "\n".join(parts)
+        # 退回到截短的原文
+        return (resume_text or "")[:1500]
+
+    def _extract_keywords(self, text: str) -> set:
+        """关键词提取（支持中英文）"""
+        if not text:
+            return set()
+        import re
+        # 英文/数字词（3 字以上）
+        en_words = re.findall(r'\b[a-zA-Z0-9][a-zA-Z0-9+#.\-]{2,}\b', text.lower())
+        en_stopwords = {
+            'the', 'and', 'for', 'with', 'you', 'are', 'this', 'that', 'from',
+            'have', 'has', 'was', 'will', 'can', 'your', 'job', 'job_id',
+            'description', 'requirements'
+        }
+        en_keywords = {w for w in en_words if w not in en_stopwords}
+        # 中文 2-4 字短语（粗粒度）
+        cn_phrases = set(re.findall(r'[一-龥]{2,4}', text))
+        cn_stopwords = {'岗位', '描述', '要求', '任职', '技能', '简历', '工作', '负责', '项目', '使用'}
+        cn_keywords = cn_phrases - cn_stopwords
+        return en_keywords | cn_keywords
+
     async def _generate_match_details(self, job_text: str,
-                                      resume_text: str) -> tuple[List[Dict], List[Dict]]:
-        """Use LLM to generate matching and risk points"""
-        system_prompt = """You are a professional recruiter analyzing resume-job matches.
-Compare the resume against the job description.
-Return a JSON object with two fields:
-- matching_points: List of objects with skill, match level (high/medium/low), and details
-- risk_points: List of objects with skill, match level, and missing/skewed details
+                                      resume_brief: str) -> tuple[List[Dict], List[Dict]]:
+        """使用 LLM 生成匹配点和风险点（输入精简，token 友好）"""
+        system_prompt = (
+            "你是招聘顾问。对比岗位描述与候选人简历，输出严格的 JSON：\n"
+            "{\n"
+            '  "matching_points": [ {"skill": "...", "level": "high|medium|low", "details": "..."} ],\n'
+            '  "risk_points":     [ {"skill": "...", "level": "high|medium|low", "details": "..."} ]\n'
+            "}\n"
+            "matching_points 最多 5 条，risk_points 最多 3 条；details 控制在 30 字内。只返回 JSON。"
+        )
 
-Return ONLY the JSON object, no additional text."""
-
-        user_prompt = f"""Job Description:\n{job_text}\n\nResume:\n{resume_text[:4000]}
-\nAnalyze the match and return JSON."""
+        user_prompt = f"岗位：\n{job_text}\n\n候选人：\n{resume_brief}\n\n请按要求返回 JSON。"
 
         result = self.llm.generate(prompt=user_prompt, system_prompt=system_prompt)
 
@@ -179,23 +274,23 @@ Return ONLY the JSON object, no additional text."""
 
     async def index_resume_with_keyinfo(self, resume_id: str, parsed_data: Dict[str, Any],
                                          raw_text: str):
-        """Index resume using parsed structured data"""
-        # Combine key fields into searchable text
+        """使用解析后的结构化数据索引简历"""
+        # 将关键字段组合为可搜索文本
         skills = parsed_data.get("skills", [])
         experience = parsed_data.get("experience", [])
         education = parsed_data.get("education", [])
 
         text_parts = [raw_text]
         if skills:
-            text_parts.append(f"Skills: {', '.join(skills)}")
+            text_parts.append(f"技能: {', '.join(skills)}")
         if experience:
             exp_text = ", ".join([f"{e.get('title', '')} at {e.get('company', '')}"
                                   for e in experience if isinstance(e, dict)])
-            text_parts.append(f"Experience: {exp_text}")
+            text_parts.append(f"经验: {exp_text}")
         if education:
             edu_text = ", ".join([f"{e.get('degree', '')} at {e.get('school', '')}"
                                   for e in education if isinstance(e, dict)])
-            text_parts.append(f"Education: {edu_text}")
+            text_parts.append(f"学历: {edu_text}")
 
         full_text = "\n".join(text_parts)
         metadata = {
@@ -206,5 +301,5 @@ Return ONLY the JSON object, no additional text."""
         await self.index_resume(resume_id, full_text, metadata)
 
 
-# Global instance
+# 全局实例
 rag_matcher = RAGMatcher()

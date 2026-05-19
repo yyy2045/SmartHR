@@ -1,5 +1,5 @@
 """
-Document Processor - PDF/Word processing, chunking and vectorization
+文档处理器 - PDF/Word 处理、分块和向量化
 """
 
 import io
@@ -10,7 +10,7 @@ from src.config import settings
 
 
 class DocumentProcessor:
-    """Process documents: extract text, chunk, and vectorize for knowledge base"""
+    """处理文档：提取文本、分块、向量化到知识库"""
 
     def __init__(self):
         self.embeddings = OpenAIEmbeddings(
@@ -22,38 +22,38 @@ class DocumentProcessor:
 
     async def process_document(self, file_path: str, metadata: Dict[str, Any]) -> List[str]:
         """
-        Process a document file: extract text, chunk, and vectorize.
-        Returns list of chunk IDs stored in vector DB.
+        处理文档文件：提取文本、分块、向量化
+        返回存储在向量数据库中的 chunk ID 列表
         """
-        # Extract text from file
+        # 从文件提取文本
         text = self.extract_text_from_file(file_path)
 
-        # Chunk the text
+        # 对文本分块
         chunks = self.chunk_text(text)
 
-        # Vectorize and store
+        # 向量化并存储
         chunk_ids = await self.vectorize_chunks(chunks, metadata)
 
         return chunk_ids
 
     async def process_file_content(self, content: bytes, filename: str, metadata: Dict[str, Any]) -> List[str]:
         """
-        Process uploaded file content directly without saving to disk.
-        Returns list of chunk IDs.
+        直接处理上传的文件内容，不保存到磁盘
+        返回 chunk ID 列表
         """
-        # Extract text based on file type
+        # 根据文件类型提取文本
         text = self.extract_text_from_bytes(content, filename)
 
-        # Chunk the text
+        # 对文本分块
         chunks = self.chunk_text(text)
 
-        # Vectorize and store
+        # 向量化并存储
         chunk_ids = await self.vectorize_chunks(chunks, metadata)
 
         return chunk_ids
 
     def extract_text_from_file(self, file_path: str) -> str:
-        """Extract text from PDF or Word file"""
+        """从 PDF 或 Word 文件提取文本"""
         import os
 
         ext = os.path.splitext(file_path)[1].lower()
@@ -63,10 +63,10 @@ class DocumentProcessor:
         elif ext in ['.docx', '.doc']:
             return self._extract_word(file_path)
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
+            raise ValueError(f"不支持的文件类型: {ext}")
 
     def extract_text_from_bytes(self, content: bytes, filename: str) -> str:
-        """Extract text from file bytes"""
+        """从文件字节提取文本"""
         ext = filename.lower().split('.')[-1]
 
         if ext == 'pdf':
@@ -74,10 +74,10 @@ class DocumentProcessor:
         elif ext in ['docx', 'doc']:
             return self._extract_word_from_bytes(content)
         else:
-            raise ValueError(f"Unsupported file type: {ext}")
+            raise ValueError(f"不支持的文件类型: {ext}")
 
     def _extract_pdf(self, file_path: str) -> str:
-        """Extract text from PDF file"""
+        """从 PDF 文件提取文本"""
         try:
             from PyPDF2 import PdfReader
             reader = PdfReader(file_path)
@@ -86,10 +86,10 @@ class DocumentProcessor:
                 text_parts.append(page.extract_text() or "")
             return "\n".join(text_parts)
         except ImportError:
-            raise ImportError("PyPDF2 is required for PDF processing. Install with: pip install PyPDF2")
+            raise ImportError("需要安装 PyPDF2 来处理 PDF。安装命令: pip install PyPDF2")
 
     def _extract_pdf_from_bytes(self, content: bytes) -> str:
-        """Extract text from PDF bytes"""
+        """从 PDF 字节提取文本"""
         try:
             from PyPDF2 import PdfReader
             reader = PdfReader(io.BytesIO(content))
@@ -98,30 +98,30 @@ class DocumentProcessor:
                 text_parts.append(page.extract_text() or "")
             return "\n".join(text_parts)
         except ImportError:
-            raise ImportError("PyPDF2 is required for PDF processing")
+            raise ImportError("需要安装 PyPDF2 来处理 PDF")
 
     def _extract_word(self, file_path: str) -> str:
-        """Extract text from Word file"""
+        """从 Word 文件提取文本"""
         try:
             from docx import Document
             doc = Document(file_path)
             return "\n".join([para.text for para in doc.paragraphs])
         except ImportError:
-            raise ImportError("python-docx is required for Word processing. Install with: pip install python-docx")
+            raise ImportError("需要安装 python-docx 来处理 Word 文档。安装命令: pip install python-docx")
 
     def _extract_word_from_bytes(self, content: bytes) -> str:
-        """Extract text from Word bytes"""
+        """从 Word 字节提取文本"""
         try:
             from docx import Document
             doc = Document(io.BytesIO(content))
             return "\n".join([para.text for para in doc.paragraphs])
         except ImportError:
-            raise ImportError("python-docx is required for Word processing")
+            raise ImportError("需要安装 python-docx 来处理 Word 文档")
 
     def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
         """
-        Split text into overlapping chunks.
-        Uses simple character-based chunking with overlap.
+        将文本拆分为有重叠的块
+        使用简单的基于字符的分块并带重叠
         """
         chunk_size = chunk_size or self.chunk_size
         overlap = overlap or self.chunk_overlap
@@ -135,9 +135,9 @@ class DocumentProcessor:
         while start < len(text):
             end = start + chunk_size
 
-            # Try to break at sentence boundary
+            # 尝试在句子边界处断开
             if end < len(text):
-                # Look for sentence ending
+                # 查找句子结尾
                 for punct in ['.', '!', '?', '\n']:
                     last_punct = text.rfind(punct, start + chunk_size // 2, end)
                     if last_punct > start + chunk_size // 2:
@@ -153,16 +153,16 @@ class DocumentProcessor:
         return chunks
 
     async def vectorize_chunks(self, chunks: List[str], metadata: Dict[str, Any]) -> List[str]:
-        """Vectorize text chunks and store in Chroma"""
+        """将文本块向量化并存储到 Chroma"""
         from src.services.vector_store import vector_store_service
 
         if not chunks:
             return []
 
-        # Get embeddings
+        # 获取嵌入向量
         embeddings_list = await self.embeddings.aembed_documents(chunks)
 
-        # Prepare documents for Chroma
+        # 准备 Chroma 文档
         documents = []
         ids = []
         for i, chunk in enumerate(chunks):
@@ -170,7 +170,7 @@ class DocumentProcessor:
             ids.append(chunk_id)
             documents.append(chunk)
 
-        # Add to vector store
+        # 添加到向量存储
         collection_name = metadata.get('collection', 'knowledge_base')
         vector_store_service.add(
             collection_name=collection_name,
@@ -184,9 +184,9 @@ class DocumentProcessor:
 
     async def process_multiple_documents(self, files: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         """
-        Process multiple documents.
-        files: List of {path, metadata} dicts
-        Returns: {filename: [chunk_ids]}
+        处理多个文档
+        files: {path, metadata} 字典列表
+        返回: {filename: [chunk_ids]}
         """
         results = {}
         for file_info in files:
@@ -197,9 +197,9 @@ class DocumentProcessor:
                 results[path] = chunk_ids
             except Exception as e:
                 results[path] = []
-                print(f"Error processing {path}: {e}")
+                print(f"处理 {path} 时出错: {e}")
         return results
 
 
-# Global instance
+# 全局实例
 document_processor = DocumentProcessor()
