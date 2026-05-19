@@ -38,20 +38,26 @@ services:
       - smarthr-network
 
   chroma:
-      image: chromadb/chroma:latest
-      platform: linux/amd64
-      container_name: smarthr-chroma
-      ports:
-        - "8000:8000"
-      volumes:
-        - chroma_data:/chroma/chroma
-      healthcheck:
-        test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
-        interval: 10s
-        timeout: 5s
-        retries: 5
-      networks:
-        - smarthr-network
+    image: chromadb/chroma:0.4.15  # <-- 改成这个固定的稳定版本
+    platform: linux/amd64
+    container_name: smarthr-chroma
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - smarthr-network
+
+  frontend:
+    build: ./smarthr-frontend
+    container_name: smarthr-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - smarthr-network
   # Optional: Add pgAdmin for MySQL management
   # pgadmin:
   #   image: dpage/pgadmin4:latest
