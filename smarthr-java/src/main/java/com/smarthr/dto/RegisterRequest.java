@@ -18,4 +18,6 @@ public class RegisterRequest {
     private String role; // HR, INTERVIEWER, ADMIN
 
     private Long companyId;
+
+    private String companyName;
 }

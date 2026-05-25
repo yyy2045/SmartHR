@@ -162,7 +162,8 @@ const handleRegister = async () => {
           name: registerForm.name,
           email: registerForm.email,
           password: registerForm.password,
-          role: 'HR'
+          role: 'HR',
+          companyName: registerForm.companyName
         })
         ElMessage.success('注册成功')
         router.push('/')

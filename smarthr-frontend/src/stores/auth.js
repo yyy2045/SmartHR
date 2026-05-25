@@ -12,7 +12,7 @@ export const useAuthStore = defineStore('auth', {
         user = null
       }
     }
-    return { user }
+    return { user, companyId: user?.companyId || null }
   },
 
   getters: {
@@ -36,6 +36,7 @@ export const useAuthStore = defineStore('auth', {
       // JWT 已通过 HttpOnly Cookie 设置
       if (data) {
         this.user = data
+        this.companyId = data.companyId
         localStorage.setItem('user', JSON.stringify(this.user))
       }
       return data

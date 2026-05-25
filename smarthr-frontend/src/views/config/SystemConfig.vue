@@ -5,28 +5,6 @@
     </div>
 
     <el-tabs v-model="activeTab" class="config-tabs">
-      <el-tab-pane label="LLM 设置" name="llm">
-        <el-card>
-          <template #header>
-            <span>大语言模型配置</span>
-          </template>
-          <el-form :model="llmConfig" label-width="120px">
-            <el-form-item label="API 基础地址">
-              <el-input v-model="llmConfig.baseUrl" placeholder="https://api.deepseek.com" />
-            </el-form-item>
-            <el-form-item label="API 密钥">
-              <el-input v-model="llmConfig.apiKey" type="password" show-password />
-            </el-form-item>
-            <el-form-item label="模型名称">
-              <el-input v-model="llmConfig.modelName" placeholder="deepseek-chat" />
-            </el-form-item>
-            <el-form-item>
-              <el-button type="primary" @click="saveLLMConfig" :loading="saving">保存</el-button>
-            </el-form-item>
-          </el-form>
-        </el-card>
-      </el-tab-pane>
-
       <el-tab-pane label="数据库" name="database">
         <el-card>
           <template #header>
@@ -87,18 +65,12 @@
 import { ref, reactive, onMounted } from 'vue'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { ElMessage } from 'element-plus'
-import { getLlmConfig, saveLlmConfig, checkDbStatus, getCompanyInfo, saveCompanyInfo as saveCompanyApi } from '@/api/config'
+import { checkDbStatus, getCompanyInfo, saveCompanyInfo as saveCompanyApi } from '@/api/config'
 import { getCurrentUser } from '@/api/auth'
 
-const activeTab = ref('llm')
+const activeTab = ref('database')
 const saving = ref(false)
 const checking = ref(false)
-
-const llmConfig = reactive({
-  baseUrl: '',
-  apiKey: '',
-  modelName: ''
-})
 
 const companyInfo = reactive({
   id: null,
@@ -112,18 +84,6 @@ const dbStatus = ref({
   redis: false,
   chroma: false
 })
-
-const saveLLMConfig = async () => {
-  saving.value = true
-  try {
-    await saveLlmConfig(llmConfig)
-    ElMessage.success('LLM 配置已保存')
-  } catch (error) {
-    ElMessage.error('保存失败: ' + (error.message || '未知错误'))
-  } finally {
-    saving.value = false
-  }
-}
 
 const saveCompanyInfoHandler = async () => {
   if (!companyInfo.id) {
@@ -158,19 +118,6 @@ const checkConnections = async () => {
   }
 }
 
-const loadLlmConfig = async () => {
-  try {
-    const res = await getLlmConfig()
-    if (res) {
-      llmConfig.baseUrl = res.baseUrl || ''
-      llmConfig.apiKey = res.apiKey || ''
-      llmConfig.modelName = res.modelName || ''
-    }
-  } catch (error) {
-    console.error('Failed to load LLM config:', error)
-  }
-}
-
 const loadCompanyInfo = async () => {
   try {
     const userRes = await getCurrentUser()
@@ -190,7 +137,6 @@ const loadCompanyInfo = async () => {
 
 onMounted(() => {
   checkConnections()
-  loadLlmConfig()
   loadCompanyInfo()
 })
 

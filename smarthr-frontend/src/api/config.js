@@ -1,14 +1,5 @@
 import api from './index'
 
-// LLM 配置
-export function saveLlmConfig(data) {
-  return api.post('/api/config/llm', data)
-}
-
-export function getLlmConfig() {
-  return api.get('/api/config/llm')
-}
-
 // 企业信息
 export function saveCompanyInfo(data) {
   return api.put('/api/companies/' + data.id, data)
