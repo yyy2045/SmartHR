@@ -48,14 +48,62 @@ services:
     networks:
       - smarthr-network
 
+  java-backend:
+    build: ./smarthr-java
+    container_name: smarthr-java
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/smarthr?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: 86400000
+    ports:
+      - "8080:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - smarthr-network
+
+  python-backend:
+    build: ./smarthr-python
+    container_name: smarthr-python
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: smarthr
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+    ports:
+      - "8001:8001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chroma:
+        condition: service_healthy
+    networks:
+      - smarthr-network
+
   frontend:
     build: ./smarthr-frontend
     container_name: smarthr-frontend
     ports:
       - "80:80"
     depends_on:
-      - mysql
-      - redis
+      - java-backend
+      - python-backend
     networks:
       - smarthr-network
 
