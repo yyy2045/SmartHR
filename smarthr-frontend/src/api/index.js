@@ -2,7 +2,7 @@ import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
   timeout: 200000,  // AI 相关接口可能耗时较长（LLM 调用），拉长到 200s
   withCredentials: true  // 跨域请求需要携带 HttpOnly Cookie
 })
