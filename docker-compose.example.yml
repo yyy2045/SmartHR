@@ -5,17 +5,17 @@ services:
     image: mysql:8
     container_name: smarthr-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: smarthr
-      MYSQL_USER: smarthr
-      MYSQL_PASSWORD: smarthr123
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       - ./init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -38,7 +38,7 @@ services:
       - smarthr-network
 
   chroma:
-    image: chromadb/chroma:0.4.15  # <-- 改成这个固定的稳定版本
+    image: chromadb/chroma:0.4.15
     platform: linux/amd64
     container_name: smarthr-chroma
     ports:
@@ -58,17 +58,6 @@ services:
       - redis
     networks:
       - smarthr-network
-  # Optional: Add pgAdmin for MySQL management
-  # pgadmin:
-  #   image: dpage/pgadmin4:latest
-  #   container_name: smarthr-pgadmin
-  #   environment:
-  #     PGADMIN_DEFAULT_EMAIL: admin@smarthr.com
-  #     PGADMIN_DEFAULT_PASSWORD: admin123
-  #   ports:
-  #     - "5050:80"
-  #   networks:
-  #     - smarthr-network
 
 volumes:
   mysql_data:

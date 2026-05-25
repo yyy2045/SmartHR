@@ -42,10 +42,11 @@ smarthr-python/.env
 *.local.yaml
 
 # Keep the example template but ignore actual config with secrets
-smarthr-python/.env.example
+# smarthr-python/.env.example  # 已上传到仓库
 
 # Docker
 docker-compose.override.yml
+docker-compose.yml  # 使用 docker-compose.example.yml 模板
 
 # Database
 *.sql.gz
