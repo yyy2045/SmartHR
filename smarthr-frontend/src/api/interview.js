@@ -1,41 +1,51 @@
 import api from './index'
+import axios from 'axios'
 
-// POST /api/interview/sessions
-export function createInterviewSession(data) {
-  return api.post('/api/interview/sessions', data)
-}
+// Python AI 服务 - 面试相关直接调 Python
+const pythonApi = axios.create({
+  baseURL: import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:8001',
+  timeout: 200000,
+  withCredentials: true
+})
+pythonApi.interceptors.request.use(config => {
+  const token = localStorage.getItem('token')
+  if (token) config.headers['Authorization'] = `Bearer ${token}`
+  return config
+})
+// Response interceptor - Python 直接返回数据，不需要解包
+pythonApi.interceptors.response.use(response => response.data)
 
-// GET /api/interview/sessions
+// 工作台统计 - 仍然调 Java
 export function getInterviewSessions(params) {
   return api.get('/api/interview/sessions', { params })
 }
 
-// GET /api/interview/sessions/:id
+// 以下全部调 Python
+export function createInterviewSession(data) {
+  return pythonApi.post('/api/interview/sessions', data)
+}
+
 export function getInterviewSession(id) {
-  return api.get(`/api/interview/sessions/${id}`)
+  return pythonApi.get(`/api/interview/sessions/${id}`)
 }
 
-// POST /api/interview/sessions/:id/message
 export function sendInterviewMessage(sessionId, data) {
-  return api.post(`/api/interview/sessions/${sessionId}/message`, data)
+  return pythonApi.post(`/api/interview/sessions/${sessionId}/message`, data)
 }
 
-// POST /api/interview/sessions/:id/end
 export function endInterview(sessionId) {
-  return api.post(`/api/interview/sessions/${sessionId}/end`)
+  return pythonApi.post(`/api/interview/sessions/${sessionId}/end`)
 }
 
-// GET /api/interview/sessions/:id/report
 export function getInterviewReport(sessionId) {
-  return api.get(`/api/interview/sessions/${sessionId}/report`)
+  return pythonApi.get(`/api/interview/sessions/${sessionId}/report`)
 }
 
-// GET /api/interview/sessions/:id/resume
 export function getInterviewResume(sessionId) {
-  return api.get(`/api/interview/sessions/${sessionId}/resume`)
+  return pythonApi.get(`/api/interview/sessions/${sessionId}/resume`)
 }
 
-// GET /api/interview/reports/stats/count
+// 工作台统计 - 调 Java
 export function getReportsCount() {
   return api.get('/api/interview/reports/stats/count')
 }

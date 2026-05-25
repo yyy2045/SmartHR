@@ -51,32 +51,41 @@ const handleCommand = async (command) => {
   align-items: center;
   justify-content: space-between;
   background: white;
-  border-bottom: 1px solid #e4e7ed;
-  padding: 0 20px;
-  height: 60px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  padding: 0 24px;
+  height: var(--header-height);
+  position: sticky;
+  top: 0;
+  z-index: 100;
 }
 
 .logo {
   font-size: 20px;
-  font-weight: 600;
-  color: #409eff;
+  font-weight: 700;
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .user-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   cursor: pointer;
-  padding: 8px;
-  border-radius: 4px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  transition: background 0.2s ease;
 }
 
 .user-info:hover {
-  background: #f5f7fa;
+  background: #f3f4f6;
 }
 
 .username {
   font-size: 14px;
+  font-weight: 500;
+  color: #374151;
   max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;

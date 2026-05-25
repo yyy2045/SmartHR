@@ -109,7 +109,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { createInterviewSession, sendInterviewMessage, endInterview as endInterviewApi, getInterviewSession, getInterviewReport } from '@/api/interview'
@@ -131,14 +131,45 @@ const isComplete = ref(false)
 const sending = ref(false)
 const chatContainer = ref()
 
+// 监听路由变化，支持从外部跳转后恢复会话
+watch(
+  () => route.query.sessionId,
+  async (newSessionId) => {
+    if (newSessionId && newSessionId !== sessionId.value) {
+      sessionId.value = newSessionId
+      await loadSession(newSessionId)
+    }
+  }
+)
+
+const loadSession = async (sid) => {
+  try {
+    const res = await getInterviewSession(sid)
+    messages.value = res.history || []
+    skillScores.value = res.skillScores || {}
+    behaviorScores.value = res.behaviorScores || {}
+    isComplete.value = res.isComplete || false
+    questionsAsked.value = res.questionsAsked || 0
+  } catch (error) {
+    console.error('加载会话失败:', error)
+  }
+}
+
 const createSession = async () => {
   try {
     // 从用户上下文获取 companyId，避免硬编码
     const userCompanyId = authStore.user?.companyId || 1
+    // resumeId 和 jobId 必须为有效值，数据库才有对应记录
+    const resumeId = route.query.resumeId ? Number(route.query.resumeId) : null
+    const jobId = route.query.jobId ? Number(route.query.jobId) : null
+    if (!resumeId || !jobId) {
+      ElMessage.error('请从简历管理页面选择简历后开始面试')
+      return
+    }
     const res = await createInterviewSession({
-      jobId: Number(route.query.jobId) || 1,
-      resumeId: Number(route.query.resumeId) || 1,
-      companyId: userCompanyId
+      job_id: String(jobId),
+      resume_id: String(resumeId),
+      company_id: String(userCompanyId)
     })
     if (!res || !res.sessionId) {
       ElMessage.error('创建面试会话失败：服务未返回会话 ID')
@@ -156,6 +187,8 @@ const createSession = async () => {
         timestamp: dayjs().format('HH:mm')
       })
     }
+    // 跳转到带 sessionId 的 URL，以便刷新后能恢复会话
+    router.replace({ query: { ...route.query, sessionId: sessionId.value } })
     ElMessage.success('面试已开始')
   } catch (error) {
     console.error('创建面试会话失败:', error)
@@ -235,18 +268,10 @@ const scrollToBottom = async () => {
 }
 
 onMounted(async () => {
-  if (route.params.sessionId) {
-    sessionId.value = route.params.sessionId
-    try {
-      const res = await getInterviewSession(sessionId.value)
-      messages.value = res.messages || []
-      skillScores.value = res.skillScores || {}
-      behaviorScores.value = res.behaviorScores || {}
-      isComplete.value = res.isComplete || false
-      questionsAsked.value = res.questionsAsked || 0
-    } catch (error) {
-      console.error('加载会话失败:', error)
-    }
+  // 优先从 URL query 恢复会话（支持路由切换后继续）
+  const urlSessionId = route.query.sessionId
+  if (urlSessionId) {
+    await loadSession(urlSessionId)
   }
 })
 </script>

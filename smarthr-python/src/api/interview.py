@@ -32,10 +32,10 @@ class SendMessageRequest(BaseModel):
 
 class QuestionResponse(BaseModel):
     """问题响应"""
-    session_id: str
+    sessionId: str
     status: str
-    question: Optional[Dict[str, Any]] = None
-    is_complete: bool = False
+    currentQuestion: Optional[Dict[str, Any]] = None
+    isComplete: bool = False
     message: Optional[str] = None
     skillScores: Optional[Dict[str, int]] = None
     behaviorScores: Optional[Dict[str, int]] = None
@@ -43,15 +43,15 @@ class QuestionResponse(BaseModel):
 
 class ReportResponse(BaseModel):
     """报告响应"""
-    session_id: str
-    overall_score: float
-    skill_score: float
-    behavior_score: float
+    sessionId: str
+    overallScore: float
+    skillScore: float
+    behaviorScore: float
     recommendation: str
     summary: str
     strengths: List[str]
     concerns: List[str]
-    interview_highlights: List[str]
+    interviewHighlights: List[str]
 
 
 @router.post("/sessions", response_model=QuestionResponse)
@@ -127,10 +127,10 @@ async def create_session(request: CreateSessionRequest):
         print(f"[interview] save final state failed: {e}")
 
     return QuestionResponse(
-        session_id=session_id,
+        sessionId=session_id,
         status="IN_PROGRESS",
-        question=first_question,
-        is_complete=False
+        currentQuestion=first_question,
+        isComplete=False
     )
 
 
@@ -146,15 +146,15 @@ async def get_session(session_id: str):
     history = await interview_state_manager.get_history(session_id)
 
     return {
-        "session_id": session_id,
+        "sessionId": session_id,
         "status": state.get("status", "UNKNOWN"),
-        "current_agent": state.get("current_agent", "MAIN"),
-        "questions_asked": state.get("questions_asked", 0),
-        "is_complete": state.get("is_complete", False),
-        "current_question": state.get("current_question"),
+        "currentAgent": state.get("current_agent", "MAIN"),
+        "questionsAsked": state.get("questions_asked", 0),
+        "isComplete": state.get("is_complete", False),
+        "currentQuestion": state.get("current_question"),
         "history": history,
-        "skill_scores": state.get("skill_scores", {}),
-        "behavior_scores": state.get("behavior_scores", {})
+        "skillScores": state.get("skill_scores", {}),
+        "behaviorScores": state.get("behavior_scores", {})
     }
 
 
@@ -172,10 +172,10 @@ async def send_message(session_id: str, request: SendMessageRequest):
 
     if state.get("is_complete"):
         return QuestionResponse(
-            session_id=session_id,
+            sessionId=session_id,
             status="COMPLETED",
             message="面试已完成",
-            is_complete=True
+            isComplete=True
         )
 
     # 将候选人消息追加到历史（容错）
@@ -224,16 +224,17 @@ async def send_message(session_id: str, request: SendMessageRequest):
         except Exception as e:
             print(f"[interview] save state failed: {e}")
         return QuestionResponse(
-            session_id=session_id,
+            sessionId=session_id,
             status="COMPLETED",
             message="面试已完成",
-            is_complete=True,
+            isComplete=True,
             skillScores=state.get("skill_scores", {}),
             behaviorScores=state.get("behavior_scores", {})
         )
 
     # 通过 LLM 直接生成下一个问题（跳过 LangGraph 以稳定首响并避开节点链路异常）
     next_question_text = None
+    knowledge_context = ""
     try:
         from src.services.llm_service import llm_service
         if questions_asked < 2:
@@ -246,11 +247,48 @@ async def send_message(session_id: str, request: SendMessageRequest):
             topic = "过往成就与成长经历"
             qtype = "EXPERIENCE"
 
+        # 检索知识库获取公司相关上下文
+        company_id = state.get("company_id")
+        if company_id:
+            try:
+                from src.services.knowledge_retriever import knowledge_retriever
+                loop = asyncio.get_event_loop()
+                if not loop.is_running():
+                    kb_results = await knowledge_retriever.search_by_company(
+                        company_id=str(company_id),
+                        query=f"{topic} 岗位要求 公司文化",
+                        top_k=2
+                    )
+                    if kb_results:
+                        knowledge_context = "\n".join([
+                            r.get("document", "")[:300] for r in kb_results
+                        ])
+            except Exception as e:
+                print(f"[interview] knowledge retrieval failed: {e}")
+
+        # 最近3轮对话历史（窗口记忆）
+        history_context = ""
+        if history and len(history) >= 2:
+            recent = history[-6:]  # 最近3轮 = 6条消息（Q,A,Q,A,Q,A）
+            qa_pairs = []
+            for i in range(0, len(recent), 2):
+                if i + 1 < len(recent):
+                    q = recent[i].get("content", "")[:200] if isinstance(recent[i], dict) else str(recent[i])
+                    a = recent[i + 1].get("content", "")[:300] if isinstance(recent[i + 1], dict) else str(recent[i + 1])
+                    qa_pairs.append(f"问：{q}\n答：{a}")
+            if qa_pairs:
+                history_context = "\n\n".join(qa_pairs[-3:])  # 最多3轮
+
         prompt = (
-            f"你是面试官，请根据上一轮的提问和候选人的回答，提出一个新的{topic}相关的中文面试问题。\n\n"
+            f"你是面试官，请根据岗位描述和对话历史，提出一个新的{topic}相关的中文面试问题。\n\n"
             f"岗位描述：{(job_description or '通用岗位')[:400]}\n"
-            f"上一题：{previous_q_text[:300]}\n"
-            f"候选人回答：{(request.message or '')[:600]}\n\n"
+        )
+        if knowledge_context:
+            prompt += f"公司知识库相关信息：{knowledge_context}\n"
+        if history_context:
+            prompt += f"最近对话历史：\n{history_context}\n\n"
+        prompt += (
+            f"最新回答：{(request.message or '')[:600]}\n\n"
             f"只返回问题本身，不要任何前缀、说明或额外内容。"
         )
         next_question_text = await asyncio.wait_for(
@@ -286,10 +324,10 @@ async def send_message(session_id: str, request: SendMessageRequest):
         print(f"[interview] save state failed: {e}")
 
     return QuestionResponse(
-        session_id=session_id,
+        sessionId=session_id,
         status="IN_PROGRESS",
-        question=next_question,
-        is_complete=False,
+        currentQuestion=next_question,
+        isComplete=False,
         skillScores=state.get("skill_scores", {}),
         behaviorScores=state.get("behavior_scores", {})
     )
@@ -328,19 +366,19 @@ async def end_session(session_id: str):
     report_data = result.get("report_data", {})
 
     return {
-        "session_id": session_id,
+        "sessionId": session_id,
         "status": "COMPLETED",
         "report": {
-            "overall_score": report_data.get("overall_score", 75),
-            "skill_score": report_data.get("skill_score", 75),
-            "behavior_score": report_data.get("behavior_score", 75),
+            "overallScore": report_data.get("overall_score", 75),
+            "skillScore": report_data.get("skill_score", 75),
+            "behaviorScore": report_data.get("behavior_score", 75),
             "skillScores": report_data.get("skillScores", {}),
             "behaviorScores": report_data.get("behaviorScores", {}),
             "recommendation": report_data.get("recommendation", "HIRE"),
             "summary": report_data.get("summary", ""),
             "strengths": report_data.get("strengths", []),
             "concerns": report_data.get("concerns", []),
-            "interview_highlights": report_data.get("interview_highlights", []),
+            "interviewHighlights": report_data.get("interview_highlights", []),
             "qaSummary": report_data.get("qaSummary", [])
         }
     }
@@ -367,17 +405,17 @@ async def get_report(session_id: str):
     behavior_scores = await interview_state_manager.get_behavior_scores(session_id)
 
     return {
-        "session_id": session_id,
-        "overall_score": report.get("overall_score", 0),
-        "skill_score": report.get("skill_score", 0),
-        "behavior_score": report.get("behavior_score", 0),
+        "sessionId": session_id,
+        "overallScore": report.get("overall_score", 0),
+        "skillScore": report.get("skill_score", 0),
+        "behaviorScore": report.get("behavior_score", 0),
         "skillScores": skill_scores,
         "behaviorScores": behavior_scores,
         "recommendation": report.get("recommendation", "UNKNOWN"),
         "summary": report.get("summary", ""),
         "strengths": report.get("strengths", []),
         "concerns": report.get("concerns", []),
-        "interview_highlights": report.get("interview_highlights", []),
+        "interviewHighlights": report.get("interview_highlights", []),
         "qaSummary": report.get("qaSummary", [])
     }
 
@@ -393,7 +431,7 @@ async def resume_session(session_id: str):
 
     if state.get("is_complete"):
         return {
-            "session_id": session_id,
+            "sessionId": session_id,
             "status": "ALREADY_COMPLETED",
             "message": "此面试已完成"
         }
@@ -403,10 +441,10 @@ async def resume_session(session_id: str):
     questions_asked = state.get("questions_asked", 0)
 
     return {
-        "session_id": session_id,
+        "sessionId": session_id,
         "status": "READY_TO_RESUME",
-        "current_question": current_question,
-        "questions_asked": questions_asked,
+        "currentQuestion": current_question,
+        "questionsAsked": questions_asked,
         "message": "会话已恢复，请从上次中断处继续"
     }
 
@@ -419,17 +457,17 @@ async def get_session_status(session_id: str):
     state = await interview_state_manager.load_state(session_id)
     if not state:
         return {
-            "session_id": session_id,
+            "sessionId": session_id,
             "exists": False
         }
 
     return {
-        "session_id": session_id,
+        "sessionId": session_id,
         "exists": True,
         "status": state.get("status", "UNKNOWN"),
-        "is_complete": state.get("is_complete", False),
-        "questions_asked": state.get("questions_asked", 0),
-        "current_agent": state.get("current_agent", "MAIN")
+        "isComplete": state.get("is_complete", False),
+        "questionsAsked": state.get("questions_asked", 0),
+        "currentAgent": state.get("current_agent", "MAIN")
     }
 
 
@@ -440,11 +478,34 @@ async def evaluate_answer(state: Dict, answer: str, eval_type: str):
     """
     import asyncio
 
+    # 评分标准 rubric
+    rubric = {
+        "TECHNICAL": """技术能力评分标准（0-100）：
+- 90-100：回答准确具体，能说出技术细节、工具名称、框架、代码逻辑，有实战经验佐证
+- 70-89：回答基本正确，有一定技术深度，但缺乏具体细节或实战验证
+- 50-69：回答模糊，技术概念不准确，或只停留在表面理解
+- 30-49：回答错误明显，对技术原理理解不正确
+- 0-29：完全不会或回避问题""",
+        "BEHAVIORAL": """行为面试评分标准（0-100）：
+- 90-100：STAR 完整（ Situation-Task-Action-Result ），故事具体、数据清晰、结果可量化
+- 70-89：STAR 基本完整，但结果数据不具体或量化不明显
+- 50-69：故事笼统，缺乏具体行动和可衡量结果
+- 30-49：故事平淡或与问题不相关
+- 0-29：编造故事或无法提供任何实际例子""",
+        "EXPERIENCE": """经验与成长评分标准（0-100）：
+- 90-100：成就突出，有具体数据（如性能提升 X%、用户增长 X），展现了主动性和成长性
+- 70-89：有一定成就，但数据不够具体或影响力有限
+- 50-69：经历平淡，没有突出贡献
+- 30-49：无法清晰描述自己的贡献
+- 0-29：没有有价值的工作经历"""
+    }
+
     prompt = (
-        f"你是一位面试评估专家。请评估候选人在以下面试问题中的回答表现，并给出评分。\n\n"
+        f"你是一位面试评估专家。请严格根据评分标准评估候选人的回答。\n\n"
+        f"评分标准：\n{rubric.get(eval_type, rubric['TECHNICAL'])}\n\n"
         f"问题类型：{eval_type}\n"
         f"候选人回答：{answer[:800]}\n\n"
-        f"请返回严格 JSON：\n"
+        f"请返回严格 JSON（必须包含 score 和 category 两个字段）：\n"
         '{"score": 0-100整数, "category": "技术能力|沟通表达|问题解决|协作能力|学习成长"}'
     )
 

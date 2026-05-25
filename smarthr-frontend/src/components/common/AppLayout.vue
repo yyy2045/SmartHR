@@ -25,27 +25,36 @@ import AppSidebar from '@/components/common/AppSidebar.vue'
 
 .main-wrapper {
   flex: 1;
-  margin-left: 200px;
+  margin-left: var(--sidebar-width);
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  width: calc(100% - 200px);
+  width: calc(100% - var(--sidebar-width));
   max-width: 100%;
 }
 
 .content-main {
   flex: 1;
-  padding: 20px;
-  background: #f5f7fa;
+  padding: 24px;
+  background: var(--bg-page);
   width: 100%;
   box-sizing: border-box;
 }
 
 .content-main :deep(.el-card) {
   width: 100%;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  border: none;
 }
 
 .content-main :deep(.el-table) {
   width: 100% !important;
+}
+
+.content-main :deep(.el-table__header th) {
+  background: #f9fafb;
+  color: #374151;
+  font-weight: 600;
 }
 </style>

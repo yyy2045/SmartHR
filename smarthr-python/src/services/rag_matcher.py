@@ -3,6 +3,7 @@ RAG 匹配器 - 对简历和岗位进行向量化和语义匹配
 """
 
 import math
+import asyncio
 from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 
