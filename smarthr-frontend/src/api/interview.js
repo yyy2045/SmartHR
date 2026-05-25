@@ -3,7 +3,7 @@ import axios from 'axios'
 
 // Python AI 服务 - 面试相关直接调 Python
 const pythonApi = axios.create({
-  baseURL: import.meta.env.VITE_PYTHON_API_URL || 'http://localhost:8001',
+  baseURL: import.meta.env.VITE_PYTHON_API_URL || '/python',
   timeout: 200000,
   withCredentials: true
 })

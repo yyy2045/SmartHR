@@ -46,7 +46,6 @@ smarthr-python/.env
 
 # Docker
 docker-compose.override.yml
-docker-compose.yml  # 使用 docker-compose.example.yml 模板
 
 # Database
 *.sql.gz
