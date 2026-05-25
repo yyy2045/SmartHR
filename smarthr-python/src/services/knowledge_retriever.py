@@ -111,7 +111,8 @@ class KnowledgeRetriever:
         try:
             vector_store_service.delete(self.collection_name, [chunk_id])
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[knowledge_retriever] delete_knowledge failed: {e}")
             return False
 
     async def update_knowledge(self, chunk_id: str, new_text: str, new_metadata: Dict[str, Any]) -> bool:
@@ -127,7 +128,8 @@ class KnowledgeRetriever:
                 metadata=[new_metadata]
             )
             return True
-        except Exception:
+        except Exception as e:
+            print(f"[knowledge_retriever] update_knowledge failed: {e}")
             return False
 
 

@@ -87,8 +87,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     authToken.setDetails(new CustomAuthDetails(request, userId, companyId, role));
                     SecurityContextHolder.getContext().setAuthentication(authToken);
                 } catch (UsernameNotFoundException e) {
-                    // 用户token合法但账号不存在/被删除，不设置认证，让请求继续
+                    // 用户 token 合法但账号不存在/被删除，应拒绝访问而非静默放行
                     logger.warn("Token valid but user not found: " + email);
+                    response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    response.getWriter().write("{\"error\":\"User account not found\"}");
+                    response.setContentType("application/json");
+                    return;
                 }
             }
         }

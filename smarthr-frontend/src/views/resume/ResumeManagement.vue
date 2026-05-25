@@ -111,9 +111,12 @@ import { useRouter } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { getResumes, uploadResume as apiUploadResume, matchResume, deleteResume as apiDeleteResume } from '@/api/resume'
 import { getJobs } from '@/api/job'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, UploadFilled } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
+
+const authStore = useAuthStore()
 
 const router = useRouter()
 const loading = ref(false)
@@ -173,7 +176,8 @@ const uploadResume = async () => {
   }
   uploading.value = true
   try {
-    await apiUploadResume(selectedFile.value, uploadForm.jobId, uploadForm.candidateName)
+    const userCompanyId = authStore.user?.companyId || 1
+    await apiUploadResume(selectedFile.value, uploadForm.jobId, uploadForm.candidateName, userCompanyId)
     ElMessage.success('简历上传成功')
     showUploadDialog.value = false
     uploadForm.candidateName = ''

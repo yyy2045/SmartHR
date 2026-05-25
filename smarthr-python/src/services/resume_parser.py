@@ -135,17 +135,18 @@ class ResumeParser:
         import tempfile
         import os
 
-        suffix = Path(file_path).suffix.lower()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(file_content)
-            tmp_path = tmp.name
-
+        suffix = Path(file_path).suffix.lower() if file_path else ""
+        tmp_path = None
         try:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                tmp.write(file_content)
+                tmp_path = tmp.name
             raw_text = self.extract_text_from_file(tmp_path)
             parsed = await self.parse_text(raw_text)
             return parsed, raw_text
         finally:
-            os.unlink(tmp_path)
+            if tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
 
 
 # 全局实例

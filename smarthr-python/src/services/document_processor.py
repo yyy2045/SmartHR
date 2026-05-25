@@ -145,7 +145,7 @@ class DocumentProcessor:
                         break
 
             chunk = text[start:end].strip()
-            if chunk:
+            if chunk and chunk.strip():  # 过滤空白字符 chunk
                 chunks.append(chunk)
 
             start = end - overlap

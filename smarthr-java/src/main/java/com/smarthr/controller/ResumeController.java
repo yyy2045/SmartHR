@@ -55,6 +55,7 @@ public class ResumeController {
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "jobId", required = false) Long jobId,
             @RequestParam(value = "candidateName", required = false) String candidateName,
+            @RequestParam(value = "companyId", required = false) Long companyId,
             @AuthenticationPrincipal UserDetails user) {
 
         try {
@@ -68,7 +69,7 @@ public class ResumeController {
             String originalFilename = file.getOriginalFilename();
             String extension = "";
             if (originalFilename != null && originalFilename.contains(".")) {
-                extension = originalFilename.substring(originalFilename.substring(1).lastIndexOf("."));
+                extension = originalFilename.substring(originalFilename.lastIndexOf("."));
             }
             String filename = UUID.randomUUID().toString() + extension;
             Path filePath = uploadPath.resolve(filename);
@@ -229,7 +230,8 @@ public class ResumeController {
 
             String parsedResumeJson = resume.getParsedData();
 
-            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText, jobText, parsedResumeJson);
+            Long companyId = getUserCompanyId();
+            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText, jobText, parsedResumeJson, companyId);
 
             // Update resume with match score
             resume.setMatchScore(BigDecimal.valueOf(result.getMatchScore()));
@@ -259,7 +261,7 @@ public class ResumeController {
     @GetMapping("/stats/count-this-week")
     public ResponseEntity<UnifiedResponse<Long>> countResumesThisWeek() {
         java.time.LocalDateTime weekAgo = java.time.LocalDateTime.now().minusDays(7);
-        long count = resumeRepository.findByCreatedAtAfter(weekAgo).size();
+        long count = resumeRepository.countByCreatedAtAfter(weekAgo);
         return ResponseEntity.ok(UnifiedResponse.success(count));
     }
 

@@ -66,15 +66,21 @@ class JDExtractor:
             "requirements": []
         }
 
-    async def extract(self, jd_text: str) -> JDKeyInfo:
+    def extract(self, jd_text: str) -> JDKeyInfo:
         """从 JD 文本中提取关键信息"""
         system_prompt, user_prompt = self._build_extraction_prompt(jd_text)
         result = self.llm.generate(prompt=user_prompt, system_prompt=system_prompt)
 
         parsed = self._parse_json_response(result)
+        experience_years = parsed.get("experience_years")
+        if experience_years is not None:
+            try:
+                experience_years = int(experience_years)
+            except (ValueError, TypeError):
+                experience_years = None
         return JDKeyInfo(
             skills=parsed.get("skills", []),
-            experience_years=parsed.get("experience_years"),
+            experience_years=experience_years,
             education=parsed.get("education", ""),
             summary=parsed.get("summary", ""),
             requirements=parsed.get("requirements", [])

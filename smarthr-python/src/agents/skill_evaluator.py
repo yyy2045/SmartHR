@@ -25,12 +25,13 @@ class SkillEvaluatorAgent:
         if company_id:
             try:
                 import asyncio
+                # 使用 asyncio.run() 处理事件循环，或降级为空
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
                         knowledge_context = ""
                     else:
-                        knowledge_context = loop.run_until_complete(
+                        knowledge_context = asyncio.run(
                             knowledge_retriever.get_context_for_agent(
                                 agent_type="SKILL",
                                 query="technical requirements skills",

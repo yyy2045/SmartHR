@@ -25,13 +25,17 @@ export function getDocument(id, companyId) {
 }
 
 // DELETE /api/knowledge/documents/:id
-export function deleteDocument(id) {
-  return api.delete(`/api/knowledge/documents/${id}`)
+export function deleteDocument(id, companyId) {
+  return api.delete(`/api/knowledge/documents/${id}`, {
+    params: { companyId }
+  })
 }
 
 // POST /api/knowledge/documents/:id/reindex
-export function reindexDocument(id) {
-  return api.post(`/api/knowledge/documents/${id}/reindex`)
+export function reindexDocument(id, companyId) {
+  return api.post(`/api/knowledge/documents/${id}/reindex`, null, {
+    params: { companyId }
+  })
 }
 
 // GET /api/knowledge/search

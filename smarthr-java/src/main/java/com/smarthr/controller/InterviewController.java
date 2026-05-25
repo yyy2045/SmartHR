@@ -64,6 +64,28 @@ public class InterviewController {
         } else {
             sessions = sessionRepository.findAll();
         }
+
+        // 批量获取候选人姓名和岗位名称（避免 N+1 查询）
+        java.util.Set<Long> resumeIds = sessions.stream()
+            .map(InterviewSession::getResumeId)
+            .filter(id -> id != null)
+            .collect(java.util.stream.Collectors.toSet());
+        java.util.Set<Long> jobIds = sessions.stream()
+            .map(InterviewSession::getJobId)
+            .filter(id -> id != null)
+            .collect(java.util.stream.Collectors.toSet());
+
+        java.util.Map<Long, String> resumeNames = new java.util.HashMap<>();
+        if (!resumeIds.isEmpty()) {
+            resumeRepository.findAllById(resumeIds).forEach(r ->
+                resumeNames.put(r.getId(), r.getCandidateName()));
+        }
+        java.util.Map<Long, String> jobTitles = new java.util.HashMap<>();
+        if (!jobIds.isEmpty()) {
+            jobRepository.findAllById(jobIds).forEach(j ->
+                jobTitles.put(j.getId(), j.getTitle()));
+        }
+
         java.util.List<InterviewSessionDTO> dtos = sessions.stream().map(s -> {
             InterviewSessionDTO dto = new InterviewSessionDTO();
             dto.setSessionId(s.getSessionId());
@@ -71,13 +93,8 @@ public class InterviewController {
             dto.setResumeId(s.getResumeId());
             dto.setStatus(s.getStatus());
             dto.setComplete("COMPLETED".equals(s.getStatus()));
-            // 查询候选人姓名和岗位名称
-            if (s.getResumeId() != null) {
-                resumeRepository.findById(s.getResumeId()).ifPresent(r -> dto.setCandidateName(r.getCandidateName()));
-            }
-            if (s.getJobId() != null) {
-                jobRepository.findById(s.getJobId()).ifPresent(j -> dto.setJobTitle(j.getTitle()));
-            }
+            dto.setCandidateName(resumeNames.get(s.getResumeId()));
+            dto.setJobTitle(jobTitles.get(s.getJobId()));
             return dto;
         }).collect(java.util.stream.Collectors.toList());
         return ResponseEntity.ok(UnifiedResponse.success(dtos));

@@ -21,10 +21,20 @@ public class UserService implements UserDetailsService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
 
+        // 从 User 实体的 role 字段获取角色
+        java.util.ArrayList<org.springframework.security.core.authority.SimpleGrantedAuthority> authorities =
+            new java.util.ArrayList<>();
+        if (user.getRole() != null && !user.getRole().isEmpty()) {
+            authorities.add(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                "ROLE_" + user.getRole().toUpperCase()));
+        } else {
+            authorities.add(new org.springframework.security.core.authority.SimpleGrantedAuthority("ROLE_USER"));
+        }
+
         return new org.springframework.security.core.userdetails.User(
                 user.getEmail(),
                 user.getPassword(),
-                new ArrayList<>()
+                authorities
         );
     }
 

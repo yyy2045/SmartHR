@@ -44,8 +44,13 @@ public class HealthController {
 
         // Redis
         try {
-            String pong = redisTemplate.getConnectionFactory().getConnection().ping();
-            status.put("redis", "PONG".equalsIgnoreCase(pong));
+            var redisConn = redisTemplate.getConnectionFactory().getConnection();
+            try {
+                String pong = redisConn.ping();
+                status.put("redis", "PONG".equalsIgnoreCase(pong));
+            } finally {
+                redisConn.close(); // 关闭连接避免泄漏
+            }
         } catch (Exception e) {
             status.put("redis", false);
             status.put("redis_error", e.getMessage());

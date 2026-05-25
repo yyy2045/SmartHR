@@ -86,6 +86,9 @@ public class InterviewService {
         body.put("resume_id", request.getResumeId().toString());
         body.put("job_description", jobDescription);
         body.put("resume_text", resumeText);
+        if (request.getCompanyId() != null) {
+            body.put("company_id", request.getCompanyId().toString());
+        }
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);
 
@@ -205,13 +208,21 @@ public class InterviewService {
 
         if (response.getStatusCode() == HttpStatus.OK && response.getBody() != null) {
             Map<String, Object> body_response = response.getBody();
+            @SuppressWarnings("unchecked")
             Map<String, Object> report_map = (Map<String, Object>) body_response.get("report");
+            if (report_map == null) {
+                throw new RuntimeException("AI 服务未返回 report 数据");
+            }
 
             // Save report to MySQL
             InterviewReport report = new InterviewReport();
-            report.setSessionId(sessionRepository.findBySessionId(sessionId)
+            Long dbSessionId = sessionRepository.findBySessionId(sessionId)
                     .map(InterviewSession::getId)
-                    .orElse(null));
+                    .orElse(null);
+            if (dbSessionId == null) {
+                throw new RuntimeException("面试会话不存在: " + sessionId);
+            }
+            report.setSessionId(dbSessionId);
             report.setOverallScore(toBigDecimal(report_map.get("overall_score")));
             report.setSkillScore(toBigDecimal(report_map.get("skill_score")));
             report.setBehaviorScore(toBigDecimal(report_map.get("behavior_score")));
@@ -326,7 +337,7 @@ public class InterviewService {
 
             InterviewSessionDTO dto = new InterviewSessionDTO();
             dto.setSessionId(sessionId);
-            dto.setStatus((String) body.get("status"));
+            dto.setStatus(body.get("status") != null ? (String) body.get("status") : "UNKNOWN");
 
             @SuppressWarnings("unchecked")
             Map<String, Object> question = (Map<String, Object>) body.get("current_question");

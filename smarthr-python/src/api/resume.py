@@ -2,7 +2,7 @@
 简历 API - 简历解析与匹配接口
 """
 
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import uuid
@@ -22,6 +22,7 @@ class ResumeMatchRequest(BaseModel):
     resume_text: str
     job_text: Optional[str] = ""
     parsed_resume: Optional[Dict[str, Any]] = None
+    company_id: Optional[str] = None
 
 
 class ParsedResume(BaseModel):
@@ -36,7 +37,10 @@ class ParsedResume(BaseModel):
 
 
 @router.post("/upload")
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(
+    file: UploadFile = File(...),
+    company_id: Optional[str] = Form(None)
+):
     """
     上传并解析简历文件（PDF 或 Word）
     使用 LLM 从文本中提取结构化数据
@@ -56,6 +60,8 @@ async def upload_resume(file: UploadFile = File(...)):
 
     try:
         # 解析简历，获取原始文本和结构化数据
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="文件名为空")
         parsed, raw_text = await resume_parser.parse_with_file_content(file.filename, content)
 
         return {
@@ -63,7 +69,8 @@ async def upload_resume(file: UploadFile = File(...)):
             "status": "parsed",
             "data": parsed,
             "raw_text": raw_text,
-            "file_name": file.filename
+            "file_name": file.filename,
+            "company_id": company_id
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"简历解析失败: {str(e)}")
@@ -93,13 +100,17 @@ async def match_resume(request: ResumeMatchRequest):
     """
     from src.services.rag_matcher import rag_matcher
 
+    # company_id 用于企业数据隔离，未提供时使用默认值
+    company_id = request.company_id or "default"
+
     try:
         result = await rag_matcher.match(
             job_id=request.job_id,
             resume_text=request.resume_text,
             resume_id=request.resume_id,
             job_text=request.job_text or "",
-            parsed_resume=request.parsed_resume
+            parsed_resume=request.parsed_resume,
+            company_id=company_id
         )
 
         return {

@@ -113,9 +113,11 @@ import { ref, onMounted, nextTick } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { createInterviewSession, sendInterviewMessage, endInterview as endInterviewApi, getInterviewSession, getInterviewReport } from '@/api/interview'
+import { useAuthStore } from '@/stores/auth'
 import { ElMessage } from 'element-plus'
 import dayjs from 'dayjs'
 
+const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -131,10 +133,12 @@ const chatContainer = ref()
 
 const createSession = async () => {
   try {
+    // 从用户上下文获取 companyId，避免硬编码
+    const userCompanyId = authStore.user?.companyId || 1
     const res = await createInterviewSession({
       jobId: Number(route.query.jobId) || 1,
       resumeId: Number(route.query.resumeId) || 1,
-      companyId: 1
+      companyId: userCompanyId
     })
     if (!res || !res.sessionId) {
       ElMessage.error('创建面试会话失败：服务未返回会话 ID')
@@ -213,8 +217,14 @@ const endInterview = async () => {
 const viewReport = async () => {
   try {
     await endInterviewApi(sessionId.value)
-  } catch {}
-  router.push(`/report/${sessionId.value}`)
+  } catch (error) {
+    console.warn('结束面试请求失败，继续查看报告:', error)
+  }
+  if (sessionId.value) {
+    router.push(`/report/${sessionId.value}`)
+  } else {
+    ElMessage.error('会话 ID 无效')
+  }
 }
 
 const scrollToBottom = async () => {

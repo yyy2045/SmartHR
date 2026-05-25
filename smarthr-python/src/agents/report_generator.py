@@ -66,7 +66,7 @@ class ReportGeneratorAgent:
         # 计算各维度平均分
         skill_avg = sum(skill_scores.values()) / len(skill_scores) if skill_scores else 75
         behavior_avg = sum(behavior_scores.values()) / len(behavior_scores) if behavior_scores else 75
-        overall_avg = (skill_avg + behavior_avg) / 2
+        overall_avg = (skill_avg + behavior_avg) / 2 if (skill_scores and behavior_scores) else 75
 
         # 构建对话文本摘要（供 LLM 使用）
         conversation_summary = "\n".join([

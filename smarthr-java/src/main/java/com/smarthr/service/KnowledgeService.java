@@ -173,7 +173,8 @@ public class KnowledgeService {
                     dto.setDocType((String) pythonDoc.get("doc_type"));
                     dto.setCompanyId(doc.getCompanyId());
                     dto.setIndexedStatus((String) pythonDoc.get("status"));
-                    dto.setChunks((Integer) pythonDoc.get("chunks"));
+                    Object chunksObj = pythonDoc.get("chunks");
+                    dto.setChunks(chunksObj instanceof Integer ? (Integer) chunksObj : 0);
                     dto.setContent((String) pythonDoc.get("content"));
                     dto.setCreatedAt(doc.getCreatedAt() != null ? doc.getCreatedAt().toString() : null);
                     return dto;

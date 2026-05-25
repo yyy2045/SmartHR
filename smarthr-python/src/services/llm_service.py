@@ -17,7 +17,7 @@ class LLMService:
         self.provider = settings.llm_provider
         self._client = None
 
-    def _get_client(self) -> ChatOpenAI:
+    def _get_client(self):
         """根据提供商获取或创建 LLM 客户端"""
         if self._client is not None:
             return self._client
@@ -41,16 +41,14 @@ class LLMService:
                 max_retries=2
             )
         elif self.provider == "anthropic":
-            self._client = ChatOpenAI(
-                api_key=settings.anthropic_api_key,
-                base_url="https://api.anthropic.com",
-                model=settings.anthropic_model,
-                temperature=0.7,
-                request_timeout=120,
-                max_retries=2
-            )
+            try:
+                from anthropic import Anthropic
+                self._client = Anthropic(
+                    api_key=settings.anthropic_api_key,
+                )
+            except ImportError:
+                raise ImportError("请安装 anthropic 包: pip install anthropic")
         else:
-            # 默认为 deepseek
             self._client = ChatOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
@@ -65,7 +63,32 @@ class LLMService:
         """向 LLM 发送聊天请求（同步）"""
         client = self._get_client()
 
-        # 转换为 LangChain 格式
+        if self.provider == "anthropic":
+            # Anthropic 使用不同的消息格式
+            system_content = ""
+            human_messages = []
+            for msg in messages:
+                if isinstance(msg, dict):
+                    if msg.get("role") == "system":
+                        system_content = msg.get("content", "")
+                    else:
+                        human_messages.append({
+                            "role": msg.get("role", "user"),
+                            "content": msg.get("content", "")
+                        })
+                else:
+                    human_messages.append({"role": "user", "content": str(msg)})
+
+            response = client.messages.create(
+                model=settings.anthropic_model,
+                max_tokens=4096,
+                temperature=temperature,
+                system=system_content if system_content else None,
+                messages=human_messages
+            )
+            return response.content[0].text
+
+        # LangChain ChatOpenAI 路径
         langchain_messages = []
         for msg in messages:
             if isinstance(msg, dict):

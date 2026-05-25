@@ -41,14 +41,14 @@ class InterviewStateManager:
         import json
         serialized = json.dumps(message)
         # 使用 RPUSH 原子追加，避免 get_history + set 的 race condition
-        self.redis.client.rpush(key, serialized)
-        self.redis.client.expire(key, self.ttl)
+        await asyncio.to_thread(self.redis.client.rpush, key, serialized)
+        await asyncio.to_thread(self.redis.client.expire, key, self.ttl)
 
     async def get_history(self, session_id: str) -> List[Dict[str, Any]]:
         """获取完整的对话历史"""
         key = f"interview:{session_id}:history"
         # 使用 LRANGE 获取列表中的所有消息
-        items = self.redis.client.lrange(key, 0, -1)
+        items = await asyncio.to_thread(self.redis.client.lrange, key, 0, -1)
         history = []
         for item in items:
             try:
@@ -60,9 +60,30 @@ class InterviewStateManager:
     async def update_skill_scores(self, session_id: str, skill_scores: Dict[str, float]):
         """更新会话的技能分数（合并已有分数）"""
         key = f"interview:{session_id}:skills"
-        existing = await self.get_skill_scores(session_id)
-        merged = {**existing, **skill_scores}
-        await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
+        # 使用 Lua 脚本实现原子的读-合并-写，避免竞态条件
+        lua_script = """
+        local existing = redis.call('GET', KEYS[1])
+        local merged = {}
+        if existing then
+            merged = cjson.decode(existing)
+        end
+        local update = cjson.decode(ARGV[1])
+        for k, v in pairs(update) do
+            merged[k] = v
+        end
+        redis.call('SET', KEYS[1], cjson.encode(merged), 'EX', ARGV[2])
+        return 1
+        """
+        try:
+            self.redis.client.eval(
+                lua_script, 1, key,
+                json.dumps(skill_scores), self.ttl
+            )
+        except Exception as e:
+            # 降级：使用原有的非原子方式（极少并发场景）
+            existing = await self.get_skill_scores(session_id)
+            merged = {**existing, **skill_scores}
+            await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
 
     async def get_skill_scores(self, session_id: str) -> Dict[str, float]:
         """获取会话的技能分数"""
@@ -80,9 +101,28 @@ class InterviewStateManager:
     async def update_behavior_scores(self, session_id: str, behavior_scores: Dict[str, float]):
         """更新会话的行为分数（合并已有分数）"""
         key = f"interview:{session_id}:behavior"
-        existing = await self.get_behavior_scores(session_id)
-        merged = {**existing, **behavior_scores}
-        await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
+        lua_script = """
+        local existing = redis.call('GET', KEYS[1])
+        local merged = {}
+        if existing then
+            merged = cjson.decode(existing)
+        end
+        local update = cjson.decode(ARGV[1])
+        for k, v in pairs(update) do
+            merged[k] = v
+        end
+        redis.call('SET', KEYS[1], cjson.encode(merged), 'EX', ARGV[2])
+        return 1
+        """
+        try:
+            self.redis.client.eval(
+                lua_script, 1, key,
+                json.dumps(behavior_scores), self.ttl
+            )
+        except Exception as e:
+            existing = await self.get_behavior_scores(session_id)
+            merged = {**existing, **behavior_scores}
+            await asyncio.to_thread(self.redis.set, key, json.dumps(merged), self.ttl)
 
     async def get_behavior_scores(self, session_id: str) -> Dict[str, float]:
         """获取会话的行为分数"""

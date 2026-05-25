@@ -23,8 +23,9 @@ export const useAuthStore = defineStore('auth', {
     async login(email, password) {
       const data = await apiLogin({ email, password })
       // JWT 已通过 HttpOnly Cookie 设置，前端只需存储用户信息
+      // data 已是 AuthResponse 对象（UnifiedResponse 已在拦截器中解包）
       if (data) {
-        this.user = data.user || data
+        this.user = data
         localStorage.setItem('user', JSON.stringify(this.user))
       }
       return data
@@ -34,7 +35,7 @@ export const useAuthStore = defineStore('auth', {
       const data = await apiRegister(userData)
       // JWT 已通过 HttpOnly Cookie 设置
       if (data) {
-        this.user = data.user || data
+        this.user = data
         localStorage.setItem('user', JSON.stringify(this.user))
       }
       return data

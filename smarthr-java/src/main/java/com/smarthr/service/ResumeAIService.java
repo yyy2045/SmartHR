@@ -54,11 +54,16 @@ public class ResumeAIService {
     }
 
     public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText) {
-        return matchResume(resumeId, jobId, resumeText, null, null);
+        return matchResume(resumeId, jobId, resumeText, null, null, null);
     }
 
     public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText,
                                       String jobText, String parsedResumeJson) {
+        return matchResume(resumeId, jobId, resumeText, jobText, parsedResumeJson, null);
+    }
+
+    public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText,
+                                      String jobText, String parsedResumeJson, Long companyId) {
         String url = pythonServiceUrl + "/api/resume/match";
 
         HttpHeaders headers = new HttpHeaders();
@@ -74,7 +79,13 @@ public class ResumeAIService {
         if (parsedResumeJson != null && !parsedResumeJson.isEmpty()) {
             try {
                 body.put("parsed_resume", objectMapper.readTree(parsedResumeJson));
-            } catch (Exception ignore) {}
+            } catch (Exception e) {
+                // parsed_resume 解析失败不影响主流程，仅记录日志
+                System.err.println("[ResumeAIService] parsed_resume JSON 解析失败: " + e.getMessage());
+            }
+        }
+        if (companyId != null) {
+            body.put("company_id", companyId.toString());
         }
 
         HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);

@@ -26,6 +26,6 @@ export function deleteJob(id) {
 }
 
 // POST /api/jobs/:id/extract-tags
-export function extractJobTags(id) {
-  return api.post(`/api/jobs/${id}/extract-tags`)
+export function extractJobTags(jobId) {
+  return api.post(`/api/jobs/${jobId}/extract-tags`)
 }

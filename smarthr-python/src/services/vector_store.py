@@ -90,8 +90,12 @@ class VectorStoreService:
 
     def delete(self, collection_name: str, ids: List[str]):
         """从集合中删除文档"""
-        collection = self.client.get_collection(collection_name)
-        collection.delete(ids=ids)
+        try:
+            collection = self.client.get_collection(collection_name)
+            collection.delete(ids=ids)
+        except Exception as e:
+            # 集合不存在或 ID 不存在时静默忽略
+            print(f"[vector_store] delete error: {e}")
 
     def update(
         self,

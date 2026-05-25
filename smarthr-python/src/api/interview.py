@@ -214,7 +214,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
         state["behavior_scores"] = await interview_state_manager.get_behavior_scores(session_id)
 
     # 10 题封顶，直接结束面试
-    if questions_asked >= 9:
+    if questions_asked >= 10:
         state["is_complete"] = True
         # 从 Redis 同步最新的技能/行为分数
         state["skill_scores"] = await interview_state_manager.get_skill_scores(session_id)

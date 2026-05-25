@@ -27,9 +27,10 @@ class BehaviorAnalyzerAgent:
                 try:
                     loop = asyncio.get_event_loop()
                     if loop.is_running():
+                        # 在已运行的 loop 中，使用 asyncio.ensure_future + callback 或直接跳过
                         knowledge_context = ""
                     else:
-                        knowledge_context = loop.run_until_complete(
+                        knowledge_context = asyncio.run(
                             knowledge_retriever.get_context_for_agent(
                                 agent_type="BEHAVIOR",
                                 query="company culture teamwork",

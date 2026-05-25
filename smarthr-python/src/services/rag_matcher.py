@@ -121,7 +121,8 @@ class RAGMatcher:
     async def match(self, job_id: str, resume_text: str,
                     resume_id: Optional[str] = None,
                     job_text: str = "",
-                    parsed_resume: Optional[Dict[str, Any]] = None) -> MatchResult:
+                    parsed_resume: Optional[Dict[str, Any]] = None,
+                    company_id: Optional[str] = None) -> MatchResult:
         """将简历与岗位描述进行匹配
 
         参数:
@@ -134,8 +135,8 @@ class RAGMatcher:
         """
         from src.services.redis_service import redis_service
 
-        # 结果缓存：相同 (job_id, resume_id) 24h 内复用，避免重复点击烧 token
-        cache_key = f"match:{job_id}:{resume_id or 'none'}"
+        # 结果缓存：相同 (company_id, job_id, resume_id) 24h 内复用，避免重复点击烧 token
+        cache_key = f"match:{company_id}:{job_id}:{resume_id or 'none'}"
         try:
             cached = redis_service.get(cache_key)
             if cached and isinstance(cached, dict) and "score" in cached:

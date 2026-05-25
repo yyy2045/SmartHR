@@ -43,7 +43,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<UnifiedResponse<Void>> handleGenericException(Exception ex) {
-        UnifiedResponse<Void> response = UnifiedResponse.error(500, "Internal server error: " + ex.getMessage());
+        // 生产环境不暴露内部异常信息，只返回通用错误消息
+        // 完整错误信息应通过日志记录
+        UnifiedResponse<Void> response = UnifiedResponse.error(500, "Internal server error");
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
     }
 }

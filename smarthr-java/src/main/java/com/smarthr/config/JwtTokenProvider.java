@@ -100,7 +100,7 @@ public class JwtTokenProvider {
 
     public Boolean validateToken(String token, String email) {
         final String extractedEmail = extractEmail(token);
-        return (extractedEmail.equals(email) && !isTokenExpired(token));
+        return (email != null && email.equals(extractedEmail) && !isTokenExpired(token));
     }
 
     public Boolean validateToken(String token) {

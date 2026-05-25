@@ -127,6 +127,9 @@
 import { ref, reactive, onMounted } from 'vue'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { getDocuments, uploadDocument as apiUploadDocument, deleteDocument, reindexDocument, searchKnowledge, getDocument } from '@/api/knowledge'
+import { useAuthStore } from '@/stores/auth'
+
+const authStore = useAuthStore()
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -185,7 +188,8 @@ const uploadDocument = async () => {
       }
       uploading.value = true
       try {
-        await apiUploadDocument(selectedFile.value, uploadForm.docType, 1, uploadForm.title)
+        const userCompanyId = authStore.user?.companyId || 1
+        await apiUploadDocument(selectedFile.value, uploadForm.docType, userCompanyId, uploadForm.title)
         ElMessage.success('文档上传成功')
         showUploadDialog.value = false
         fetchDocuments()
@@ -201,7 +205,8 @@ const uploadDocument = async () => {
 const fetchDocuments = async () => {
   loading.value = true
   try {
-    const res = await getDocuments({ page: pagination.page - 1, size: pagination.size, companyId: 1, docType: filterDocType.value })
+    const userCompanyId = authStore.user?.companyId || 1
+    const res = await getDocuments({ page: pagination.page - 1, size: pagination.size, companyId: userCompanyId, docType: filterDocType.value })
     documents.value = res?.content || res || []
     pagination.total = res?.totalElements || documents.value.length
   } catch (error) {
@@ -214,7 +219,8 @@ const fetchDocuments = async () => {
 const search = async () => {
   if (!searchQuery.value) return
   try {
-    searchResults.value = await searchKnowledge(searchQuery.value, 1)
+    const userCompanyId = authStore.user?.companyId || 1
+    searchResults.value = await searchKnowledge(searchQuery.value, userCompanyId)
   } catch (error) {
     ElMessage.error('搜索失败')
   }
@@ -222,7 +228,8 @@ const search = async () => {
 
 const previewDoc = async (row) => {
   try {
-    const res = await getDocument(row.id, row.companyId || 1)
+    const userCompanyId = authStore.user?.companyId || 1
+    const res = await getDocument(row.id, row.companyId || userCompanyId)
     previewDocData.value = { ...row, ...res }
   } catch {
     previewDocData.value = row
@@ -233,7 +240,8 @@ const previewDoc = async (row) => {
 const reindexDoc = async (row) => {
   row.reindexing = true
   try {
-    await reindexDocument(row.id)
+    const userCompanyId = authStore.user?.companyId || 1
+    await reindexDocument(row.id, userCompanyId)
     ElMessage.success('重新索引已启动')
     setTimeout(fetchDocuments, 2000)
   } catch (error) {
@@ -246,7 +254,8 @@ const reindexDoc = async (row) => {
 const deleteDoc = async (row) => {
   try {
     await ElMessageBox.confirm(`删除"${row.title}"？`, '确认删除', { type: 'warning' })
-    await deleteDocument(row.id)
+    const userCompanyId = authStore.user?.companyId || 1
+    await deleteDocument(row.id, userCompanyId)
     ElMessage.success('文档已删除')
     fetchDocuments()
   } catch (error) {

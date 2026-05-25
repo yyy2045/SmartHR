@@ -47,7 +47,7 @@ class MainInterviewerAgent:
             else:
                 next_question = self._generate_next_question(state)
                 state["current_question"] = next_question
-                state["questions_asked"] = questions_asked + 1
+        state["questions_asked"] = questions_asked + 1
 
         return state
 

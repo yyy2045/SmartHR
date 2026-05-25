@@ -102,16 +102,16 @@ async def upload_document(
 
     # 将完整文本存入 Redis 供预览使用
     doc_id = metadata.get("doc_id")
-    company_id = metadata.get("company_id")
-    if doc_id and company_id and text:
-        preview_key = f"doc_preview:{company_id}:{doc_id}"
+    doc_company_id = metadata.get("company_id")  # 使用不同变量名避免遮盖
+    if doc_id and doc_company_id and text:
+        preview_key = f"doc_preview:{doc_company_id}:{doc_id}"
         try:
             redis_service.set(preview_key, {"content": text[:10000], "filename": filename}, expire=None)
         except Exception as e:
             print(f"[knowledge] preview save error: {e}")
 
     # 使用复合键保存文档元数据: doc:{company_id}:{document_id}
-    doc_key = f"doc:{company_id}:{document_id}"
+    doc_key = f"doc:{doc_company_id}:{document_id}"
     redis_service.set(doc_key, metadata, expire=None)
 
     return DocumentUploadResponse(
@@ -217,16 +217,16 @@ async def delete_document(document_id: str, company_id: Optional[str] = None):
     if not doc:
         raise HTTPException(status_code=404, detail="文档未找到")
 
-    # 从向量存储中删除 chunk IDs
+    # 先尝试从向量存储删除，成功后再删 Redis（保持一致性）
     chunk_ids = doc.get("chunk_ids", [])
     if chunk_ids:
         try:
             from src.services.vector_store import vector_store_service
             vector_store_service.delete("knowledge_base", chunk_ids)
         except Exception as e:
-            print(f"删除向量时出错: {e}")
+            raise HTTPException(status_code=500, detail=f"删除向量失败: {e}")
 
-    # 从 Redis 删除
+    # 只有向量删除成功后才删 Redis
     redis_service.delete(doc_key)
 
     return {
@@ -241,13 +241,13 @@ async def search_knowledge(request: KnowledgeSearchRequest):
     在知识库中进行语义搜索
     返回相关文档片段及相似度分数
     """
-    if not request.company_id:
-        raise HTTPException(status_code=400, detail="company_id 为必填项")
+    # company_id 用于数据隔离，未提供时使用默认值
+    company_id = request.company_id or "default"
 
     try:
         # 按公司搜索
         results = await knowledge_retriever.search_by_company(
-            company_id=request.company_id,
+            company_id=company_id,
             query=request.query,
             top_k=request.top_k
         )

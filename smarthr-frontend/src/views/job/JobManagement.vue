@@ -205,8 +205,8 @@ const removeTag = (tag) => {
 }
 
 const extractTags = async () => {
-  if (!jobForm.requirements && !jobForm.description) {
-    ElMessage.warning('请先输入岗位要求或描述')
+  if (!jobForm.id) {
+    ElMessage.warning('请先保存岗位后再提取标签')
     return
   }
   extracting.value = true
@@ -256,19 +256,6 @@ const submitForm = async () => {
           ElMessage.success('岗位已更新')
         } else {
           const res = await createJob(data)
-          // 保存后自动提取标签
-          const newId = res?.id || jobForm.id
-          if (newId && (jobForm.requirements || jobForm.description)) {
-            extracting.value = true
-            try {
-              const tagRes = await extractJobTags(newId)
-              if (tagRes?.tags?.length) {
-                jobForm.tags = tagRes.tags
-                await updateJob(newId, { ...data, skills: JSON.stringify(tagRes.tags) })
-              }
-            } catch {}
-            extracting.value = false
-          }
           ElMessage.success('岗位已创建')
         }
         dialogVisible.value = false
