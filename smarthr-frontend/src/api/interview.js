@@ -17,35 +17,35 @@ pythonApi.interceptors.response.use(response => response.data)
 
 // 工作台统计 - 仍然调 Java
 export function getInterviewSessions(params) {
-  return api.get('/api/interview/sessions', { params })
+  return api.get('/interview/sessions', { params })
 }
 
 // 以下全部调 Python
 export function createInterviewSession(data) {
-  return pythonApi.post('/api/interview/sessions', data)
+  return pythonApi.post('/interview/sessions', data)
 }
 
 export function getInterviewSession(id) {
-  return pythonApi.get(`/api/interview/sessions/${id}`)
+  return pythonApi.get(`/interview/sessions/${id}`)
 }
 
 export function sendInterviewMessage(sessionId, data) {
-  return pythonApi.post(`/api/interview/sessions/${sessionId}/message`, data)
+  return pythonApi.post(`/interview/sessions/${sessionId}/message`, data)
 }
 
 export function endInterview(sessionId) {
-  return pythonApi.post(`/api/interview/sessions/${sessionId}/end`)
+  return pythonApi.post(`/interview/sessions/${sessionId}/end`)
 }
 
 export function getInterviewReport(sessionId) {
-  return pythonApi.get(`/api/interview/sessions/${sessionId}/report`)
+  return pythonApi.get(`/interview/sessions/${sessionId}/report`)
 }
 
 export function getInterviewResume(sessionId) {
-  return pythonApi.get(`/api/interview/sessions/${sessionId}/resume`)
+  return pythonApi.get(`/interview/sessions/${sessionId}/resume`)
 }
 
 // 工作台统计 - 调 Java
 export function getReportsCount() {
-  return api.get('/api/interview/reports/stats/count')
+  return api.get('/interview/reports/stats/count')
 }

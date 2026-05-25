@@ -1,21 +1,21 @@
 import api from './index'
 
-// POST /api/auth/login
+// POST /auth/login
 export function login(data) {
-  return api.post('/api/auth/login', data)
+  return api.post('/auth/login', data)
 }
 
-// POST /api/auth/register
+// POST /auth/register
 export function register(data) {
-  return api.post('/api/auth/register', data)
+  return api.post('/auth/register', data)
 }
 
-// POST /api/auth/logout
+// POST /auth/logout
 export function logout() {
-  return api.post('/api/auth/logout')
+  return api.post('/auth/logout')
 }
 
-// GET /api/auth/me
+// GET /auth/me
 export function getCurrentUser() {
-  return api.get('/api/auth/me')
+  return api.get('/auth/me')
 }

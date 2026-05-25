@@ -1,16 +1,16 @@
 import api from './index'
 
-// GET /api/resumes
+// GET /resumes
 export function getResumes(params) {
-  return api.get('/api/resumes', { params })
+  return api.get('/resumes', { params })
 }
 
-// GET /api/resumes/:id
+// GET /resumes/:id
 export function getResume(id) {
-  return api.get(`/api/resumes/${id}`)
+  return api.get(`/resumes/${id}`)
 }
 
-// POST /api/resumes/upload
+// POST /resumes/upload
 export function uploadResume(file, jobId, candidateName, companyId) {
   const formData = new FormData()
   formData.append('file', file)
@@ -23,27 +23,27 @@ export function uploadResume(file, jobId, candidateName, companyId) {
   if (companyId) {
     formData.append('companyId', companyId)
   }
-  return api.post('/api/resumes/upload', formData, {
+  return api.post('/resumes/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
   })
 }
 
-// POST /api/resumes/:id/match
+// POST /resumes/:id/match
 export function matchResume(resumeId, jobId) {
-  return api.post(`/api/resumes/${resumeId}/match`, null, { params: { jobId } })
+  return api.post(`/resumes/${resumeId}/match`, null, { params: { jobId } })
 }
 
-// DELETE /api/resumes/:id
+// DELETE /resumes/:id
 export function deleteResume(id) {
-  return api.delete(`/api/resumes/${id}`)
+  return api.delete(`/resumes/${id}`)
 }
 
-// POST /api/resumes/:id/parse
+// POST /resumes/:id/parse
 export function parseResume(resumeId) {
-  return api.post(`/api/resumes/${resumeId}/parse`)
+  return api.post(`/resumes/${resumeId}/parse`)
 }
 
-// GET /api/resumes/stats/count-this-week
+// GET /resumes/stats/count-this-week
 export function getResumesCountThisWeek() {
-  return api.get('/api/resumes/stats/count-this-week')
+  return api.get('/resumes/stats/count-this-week')
 }

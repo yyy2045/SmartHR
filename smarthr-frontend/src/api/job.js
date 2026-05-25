@@ -1,31 +1,31 @@
 import api from './index'
 
-// GET /api/jobs
+// GET /jobs
 export function getJobs(params) {
-  return api.get('/api/jobs', { params })
+  return api.get('/jobs', { params })
 }
 
-// GET /api/jobs/:id
+// GET /jobs/:id
 export function getJob(id) {
-  return api.get(`/api/jobs/${id}`)
+  return api.get(`/jobs/${id}`)
 }
 
-// POST /api/jobs
+// POST /jobs
 export function createJob(data) {
-  return api.post('/api/jobs', data)
+  return api.post('/jobs', data)
 }
 
-// PUT /api/jobs/:id
+// PUT /jobs/:id
 export function updateJob(id, data) {
-  return api.put(`/api/jobs/${id}`, data)
+  return api.put(`/jobs/${id}`, data)
 }
 
-// DELETE /api/jobs/:id
+// DELETE /jobs/:id
 export function deleteJob(id) {
-  return api.delete(`/api/jobs/${id}`)
+  return api.delete(`/jobs/${id}`)
 }
 
-// POST /api/jobs/:id/extract-tags
+// POST /jobs/:id/extract-tags
 export function extractJobTags(jobId) {
-  return api.post(`/api/jobs/${jobId}/extract-tags`)
+  return api.post(`/jobs/${jobId}/extract-tags`)
 }
