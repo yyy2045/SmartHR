@@ -40,7 +40,7 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         // 1. 放行登录、注册、健康检查接口
-                        .requestMatchers("/api/auth/**", "/health", "/api/health").permitAll()
+                        .requestMatchers("/api/auth/**", "/health", "/api/health", "/api/health/db-status").permitAll()
 
                         // 2. 修复版：严格符合 Spring Boot 3 标准的文档放行路径
                         .requestMatchers(
