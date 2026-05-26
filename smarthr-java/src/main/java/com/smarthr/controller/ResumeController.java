@@ -103,14 +103,14 @@ public class ResumeController {
             // 设置公司ID
             resume.setCompanyId(getUserCompanyId());
 
-            // 如果传入了候选人姓名，先设置
+            // HR填了用HR的，HR没填才用解析的
             if (candidateName != null && !candidateName.isEmpty()) {
                 resume.setCandidateName(candidateName);
+            } else if (parsed != null && parsed.getCandidateName() != null) {
+                resume.setCandidateName(parsed.getCandidateName());
             }
 
-            // 如果解析成功，填充结构化数据（解析的姓名会覆盖传入的）
             if (parsed != null) {
-                resume.setCandidateName(parsed.getCandidateName());
                 resume.setEmail(parsed.getEmail());
                 resume.setPhone(parsed.getPhone());
                 resume.setParsedData(objectMapper.writeValueAsString(parsed));
