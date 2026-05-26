@@ -145,15 +145,18 @@ class RAGMatcher:
         except Exception as e:
             print(f"[rag_matcher] cache read failed: {e}")
 
-        # 关键词匹配打分（同时支持中英文）
+        # 关键词提取（支持中英文）
         job_keywords = self._extract_keywords(job_text)
         resume_keywords = self._extract_keywords(resume_text)
 
-        score = 75.0
-        if job_keywords and resume_keywords:
-            match_count = sum(1 for kw in job_keywords if kw in resume_keywords)
-            keyword_score = (match_count / max(len(job_keywords), 1)) * 30
-            score = 60.0 + keyword_score  # 60-90 分
+        # 多维度客观评分
+        score = self._calculate_objective_score(
+            job_text=job_text,
+            resume_text=resume_text,
+            parsed_resume=parsed_resume,
+            job_keywords=job_keywords,
+            resume_keywords=resume_keywords
+        )
 
         # LLM 生成匹配点和风险点（只有当 job_text 非空时才调用，避免无意义的 token 消耗）
         matching_points: List[Dict[str, Any]] = []
@@ -244,6 +247,69 @@ class RAGMatcher:
         cn_stopwords = {'岗位', '描述', '要求', '任职', '技能', '简历', '工作', '负责', '项目', '使用'}
         cn_keywords = cn_phrases - cn_stopwords
         return en_keywords | cn_keywords
+
+    def _calculate_objective_score(self, job_text: str, resume_text: str,
+                                   parsed_resume: Optional[Dict[str, Any]],
+                                   job_keywords: set, resume_keywords: set) -> float:
+        """多维度客观评分（0-100）"""
+        if not job_text or not resume_text:
+            return 30.0  # 缺少文本信息给低分
+
+        # 维度1：关键词匹配率 (占40分)
+        keyword_score = 0.0
+        if job_keywords and resume_keywords:
+            match_count = sum(1 for kw in job_keywords if kw in resume_keywords)
+            recall = match_count / max(len(job_keywords), 1)
+            precision = match_count / max(len(resume_keywords), 1)
+            # F1 风格的综合得分
+            if recall + precision > 0:
+                f1 = 2 * recall * precision / (recall + precision)
+                keyword_score = f1 * 40
+        elif job_keywords or resume_keywords:
+            keyword_score = 5.0  # 只有一个有关键词，极低
+
+        # 维度2：技能匹配 (占30分)
+        skill_score = 0.0
+        if parsed_resume and isinstance(parsed_resume, dict):
+            required_skills = set()
+            # 从岗位描述中提技能关键词
+            for kw in job_keywords:
+                if len(kw) >= 2:
+                    required_skills.add(kw.lower())
+            resume_skills = set()
+            for s in (parsed_resume.get("skills") or []):
+                resume_skills.add(str(s).lower())
+            if required_skills and resume_skills:
+                matched = required_skills & resume_skills
+                skill_score = (len(matched) / max(len(required_skills), 1)) * 30
+
+        # 维度3：经验相关度 (占20分)
+        exp_score = 0.0
+        if parsed_resume and isinstance(parsed_resume, dict):
+            exp_list = parsed_resume.get("experience") or []
+            if exp_list:
+                # 简单检查经历描述中是否包含岗位相关词
+                exp_text = " ".join([
+                    str(e.get("title", "")) + " " + str(e.get("description", ""))
+                    for e in exp_list if isinstance(e, dict)
+                ])
+                exp_kw_match = sum(1 for kw in job_keywords if kw.lower() in exp_text.lower())
+                exp_score = min(20.0, (exp_kw_match / max(len(job_keywords), 1)) * 20)
+
+        # 维度4：教育背景相关度 (占10分)
+        edu_score = 0.0
+        if parsed_resume and isinstance(parsed_resume, dict):
+            edu_list = parsed_resume.get("education") or []
+            if edu_list:
+                edu_text = " ".join([
+                    str(e.get("major", "")) + " " + str(e.get("degree", ""))
+                    for e in edu_list if isinstance(e, dict)
+                ])
+                edu_kw_match = sum(1 for kw in job_keywords if kw.lower() in edu_text.lower())
+                edu_score = min(10.0, (edu_kw_match / max(len(job_keywords), 1)) * 10)
+
+        total = keyword_score + skill_score + exp_score + edu_score
+        return max(5.0, min(95.0, round(total, 1)))
 
     async def _generate_match_details(self, job_text: str,
                                       resume_brief: str) -> tuple[List[Dict], List[Dict]]:
