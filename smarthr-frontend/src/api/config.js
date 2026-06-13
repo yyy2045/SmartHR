@@ -13,3 +13,12 @@ export function getCompanyInfo(id) {
 export function checkDbStatus() {
   return api.get('/health/db-status')
 }
+
+// RAG 评测
+export function getRagEvaluation() {
+  return api.get('/config/rag-evaluation')
+}
+
+export function runRagEvaluation(data = {}) {
+  return api.post('/config/rag-evaluation/run', data)
+}

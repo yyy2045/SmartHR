@@ -39,7 +39,14 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
   - [x] Route knowledge document indexing and retrieval through the unified RAG pipeline.
   - [x] Add mock-by-default embedding configuration for API-key-free local validation.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm run build`.
-- [ ] Phase 3: Add Ragas evaluation, optional MCP Client hooks, internal skills, and docs.
+- [x] Phase 3: Add Ragas evaluation, optional MCP Client hooks, internal skills, and docs.
+  - [x] Add sample-based RAG evaluation service with Ragas-first and local heuristic fallback.
+  - [x] Add `/api/rag/evaluations/run` and `/api/rag/evaluations/latest`.
+  - [x] Add optional MCP HTTP gateway client with silent fallback.
+  - [x] Add project-internal recruitment skills and internal tool registry.
+  - [x] Persist Java-triggered RAG evaluation runs in MySQL.
+  - [x] Add compact RAG evaluation block to the System Config page.
+  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm run build`.
 
 ## Phase 1 Tasks
 
@@ -48,3 +55,10 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
 - Fix knowledge-base vector metadata write bugs.
 - Fix Java/Python AI service configuration and nginx `/python/` rewrite.
 - Fix health checks and dependency manifest drift.
+
+## Phase 3 Notes
+
+- RAG evaluation defaults to `RAGAS_MODE=auto`: it uses Ragas only when dependencies and model configuration are available, otherwise it returns deterministic local metrics so the demo can run without API keys.
+- Java exposes `POST /api/config/rag-evaluation/run` and `GET /api/config/rag-evaluation`; successful runs are saved to `rag_evaluation_runs`.
+- Internal Agent skills are exposed under `/api/rag/skills` and `/api/rag/skills/call`.
+- MCP is optional through `MCP_ENABLED`, `MCP_GATEWAY_URL`, and `MCP_TIMEOUT_SECONDS`; disabled or failed MCP calls fall back to internal tools.

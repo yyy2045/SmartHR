@@ -57,20 +57,86 @@
           </el-form>
         </el-card>
       </el-tab-pane>
+
+      <el-tab-pane label="RAG评测" name="ragEvaluation">
+        <el-card>
+          <template #header>
+            <div class="card-header">
+              <span>RAGas评测</span>
+              <el-button type="primary" size="small" @click="runEvaluation" :loading="evaluating">
+                运行评测
+              </el-button>
+            </div>
+          </template>
+
+          <div class="evaluation-summary">
+            <div class="summary-item">
+              <span class="summary-label">状态</span>
+              <el-tag :type="evaluationStatusType">{{ evaluationStatusText }}</el-tag>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">评测器</span>
+              <span>{{ ragEvaluation.evaluator || '-' }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">样本数</span>
+              <span>{{ ragEvaluation.sampleCount || 0 }}</span>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">阈值</span>
+              <span>{{ toPercent(ragEvaluation.threshold) }}%</span>
+            </div>
+          </div>
+
+          <div class="metric-grid">
+            <div v-for="metric in metricItems" :key="metric.key" class="metric-item">
+              <div class="metric-head">
+                <span>{{ metric.label }}</span>
+                <strong>{{ toPercent(metric.value) }}%</strong>
+              </div>
+              <el-progress :percentage="toPercent(metric.value)" :show-text="false" />
+            </div>
+          </div>
+
+          <el-alert
+            v-if="ragEvaluation.notes"
+            class="evaluation-notes"
+            :title="ragEvaluation.notes"
+            type="info"
+            show-icon
+            :closable="false"
+          />
+
+          <div v-if="failedSamples.length" class="failed-samples">
+            <h4>未达标样本</h4>
+            <div v-for="sample in failedSamples" :key="sample.question" class="failed-sample">
+              <div class="failed-question">{{ sample.question }}</div>
+              <div class="failed-reason">{{ sample.reason || '指标低于阈值' }}</div>
+            </div>
+          </div>
+        </el-card>
+      </el-tab-pane>
     </el-tabs>
   </AppLayout>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import AppLayout from '@/components/common/AppLayout.vue'
 import { ElMessage } from 'element-plus'
-import { checkDbStatus, getCompanyInfo, saveCompanyInfo as saveCompanyApi } from '@/api/config'
+import {
+  checkDbStatus,
+  getCompanyInfo,
+  getRagEvaluation,
+  runRagEvaluation,
+  saveCompanyInfo as saveCompanyApi
+} from '@/api/config'
 import { getCurrentUser } from '@/api/auth'
 
 const activeTab = ref('database')
 const saving = ref(false)
 const checking = ref(false)
+const evaluating = ref(false)
 
 const companyInfo = reactive({
   id: null,
@@ -84,6 +150,55 @@ const dbStatus = ref({
   redis: false,
   chroma: false
 })
+
+const ragEvaluation = ref({
+  status: 'empty',
+  evaluator: '',
+  threshold: 0.7,
+  sampleCount: 0,
+  metrics: {},
+  failedSamples: [],
+  notes: ''
+})
+
+const metricLabels = {
+  faithfulness: '忠实度',
+  answerRelevancy: '答案相关性',
+  contextPrecision: '上下文精确率',
+  contextRecall: '上下文召回率'
+}
+
+const metricItems = computed(() => {
+  const metrics = ragEvaluation.value.metrics || {}
+  return Object.keys(metricLabels).map(key => ({
+    key,
+    label: metricLabels[key],
+    value: Number(metrics[key] || 0)
+  }))
+})
+
+const failedSamples = computed(() => ragEvaluation.value.failedSamples || [])
+
+const evaluationStatusType = computed(() => {
+  if (ragEvaluation.value.status === 'passed') return 'success'
+  if (ragEvaluation.value.status === 'failed') return 'danger'
+  return 'info'
+})
+
+const evaluationStatusText = computed(() => {
+  const statusMap = {
+    passed: '通过',
+    failed: '未通过',
+    empty: '暂无记录'
+  }
+  return statusMap[ragEvaluation.value.status] || ragEvaluation.value.status || '暂无记录'
+})
+
+const toPercent = value => {
+  const number = Number(value || 0)
+  if (Number.isNaN(number)) return 0
+  return Math.max(0, Math.min(100, Math.round(number * 100)))
+}
 
 const saveCompanyInfoHandler = async () => {
   if (!companyInfo.id) {
@@ -135,9 +250,49 @@ const loadCompanyInfo = async () => {
   }
 }
 
+const loadRagEvaluation = async () => {
+  try {
+    const res = await getRagEvaluation()
+    if (res) {
+      ragEvaluation.value = {
+        ...ragEvaluation.value,
+        ...res,
+        metrics: res.metrics || {},
+        failedSamples: res.failedSamples || []
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load rag evaluation:', error)
+  }
+}
+
+const runEvaluation = async () => {
+  evaluating.value = true
+  try {
+    const payload = {
+      companyId: companyInfo.id ? String(companyInfo.id) : undefined,
+      threshold: ragEvaluation.value.threshold || 0.7,
+      topK: 5
+    }
+    const res = await runRagEvaluation(payload)
+    ragEvaluation.value = {
+      ...ragEvaluation.value,
+      ...res,
+      metrics: res.metrics || {},
+      failedSamples: res.failedSamples || []
+    }
+    ElMessage.success('RAG评测已完成')
+  } catch (error) {
+    ElMessage.error('RAG评测失败: ' + (error.message || '未知错误'))
+  } finally {
+    evaluating.value = false
+  }
+}
+
 onMounted(() => {
   checkConnections()
   loadCompanyInfo()
+  loadRagEvaluation()
 })
 
 // 暴露方法给模板使用
@@ -146,12 +301,98 @@ const saveCompanyInfo = saveCompanyInfoHandler
 
 <style scoped>
 .config-tabs {
-  max-width: 800px;
+  max-width: 920px;
 }
 
 .db-info {
   margin-left: 12px;
   color: #909399;
   font-size: 13px;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.evaluation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.summary-item {
+  min-height: 56px;
+  padding: 10px 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.summary-label {
+  display: block;
+  margin-bottom: 6px;
+  color: #909399;
+  font-size: 12px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.metric-head {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  color: #303133;
+  font-size: 13px;
+}
+
+.evaluation-notes {
+  margin-top: 18px;
+}
+
+.failed-samples {
+  margin-top: 20px;
+}
+
+.failed-samples h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: #303133;
+}
+
+.failed-sample {
+  padding: 10px 12px;
+  border: 1px solid #fde2e2;
+  border-radius: 6px;
+  background: #fef0f0;
+}
+
+.failed-sample + .failed-sample {
+  margin-top: 8px;
+}
+
+.failed-question {
+  color: #303133;
+  font-size: 13px;
+}
+
+.failed-reason {
+  margin-top: 4px;
+  color: #c45656;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .evaluation-summary,
+  .metric-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
