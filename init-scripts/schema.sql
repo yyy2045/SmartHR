@@ -130,6 +130,25 @@ CREATE TABLE IF NOT EXISTS knowledge_documents (
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
 );
 
+-- RAG evaluation runs table
+CREATE TABLE IF NOT EXISTS rag_evaluation_runs (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    run_id VARCHAR(100) UNIQUE,
+    status VARCHAR(50),
+    evaluator VARCHAR(50),
+    threshold_score DECIMAL(6,4),
+    sample_count INT DEFAULT 0,
+    metrics JSON,
+    failed_samples JSON,
+    sample_results JSON,
+    notes TEXT,
+    started_at VARCHAR(64),
+    completed_at VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_created_at (created_at),
+    INDEX idx_status (status)
+);
+
 -- Insert sample data for testing
 INSERT INTO companies (name, industry, description) VALUES
 ('TechCorp Inc.', 'Technology', 'Leading technology company specializing in AI and cloud solutions'),

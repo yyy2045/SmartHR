@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     rerank_base_url: str = os.getenv("RERANK_BASE_URL", "")
     rerank_model: str = os.getenv("RERANK_MODEL", "bge-reranker-v2-m3")
 
+    # RAG 评测配置 - auto 会在 Ragas 可用且模型配置齐全时使用真实评测，否则降级
+    ragas_mode: str = os.getenv("RAGAS_MODE", "auto")
+    ragas_threshold: float = float(os.getenv("RAGAS_THRESHOLD", "0.70"))
+
+    # 可选 MCP HTTP 网关配置；未启用时内部 tools/skills 继续工作
+    mcp_enabled: bool = os.getenv("MCP_ENABLED", "false").lower() == "true"
+    mcp_gateway_url: str = os.getenv("MCP_GATEWAY_URL", "")
+    mcp_timeout_seconds: float = float(os.getenv("MCP_TIMEOUT_SECONDS", "3"))
+
     # Chroma 向量数据库
     chroma_host: str = os.getenv("CHROMA_HOST", "localhost")
     chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))
