@@ -119,67 +119,6 @@ poetry run python src/main.py
 
 服务地址：http://localhost:8001
 
-## 阿里云轻量云服务器演示部署
-
-目标环境：阿里云轻量应用服务器或单 ECS，最低 2 核 4G，CPU-only，Docker Compose 单机部署。生产演示只开放 `80/443` 和管理用 `22`，MySQL、Redis、Chroma、Java、Python、前端容器均不直接暴露公网端口。
-
-### 1. 服务器准备
-
-```bash
-sudo mkdir -p /opt/smarthr/models
-sudo fallocate -l 2G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-```
-
-将本地 embedding 模型放到：
-
-```bash
-/opt/smarthr/models/bge-base-zh-v1.5
-```
-
-### 2. 域名和 HTTPS
-
-域名需要解析到服务器公网 IP。中国大陆地域绑定域名通常需要 ICP 备案。证书文件放在：
-
-```bash
-deploy/certs/fullchain.pem
-deploy/certs/privkey.pem
-```
-
-### 3. 配置和启动
-
-```bash
-cp .env.example .env
-# 编辑 .env，填入 MySQL/JWT/DeepSeek/域名等真实配置
-docker compose -f docker-compose.aliyun.yml up -d --build
-```
-
-生产模板固定使用本地 `bge-base-zh-v1.5`，`ALLOW_MOCK_EMBEDDING=false`。2 核 4G 下不启用神经 reranker，使用 hybrid retrieval + embedding 相似度排序。
-
-### 4. 健康检查
-
-```bash
-curl https://你的域名/api/health
-curl https://你的域名/python/health/dependencies
-docker compose -f docker-compose.aliyun.yml ps
-```
-
-`/python/health/dependencies` 会检查 Redis、Chroma、本地 BGE 模型路径、加载状态、向量维度和一次测试 embedding。
-
-### 5. 人工验收路径
-
-1. 登录 `admin@smarthr.com / admin123` 或 `hr@smarthr.com / admin123`
-2. 创建岗位
-3. 录入或上传知识库文档
-4. 上传简历并完成解析
-5. 执行岗位匹配，查看总分、技能命中、技能缺口、风险点和证据来源
-6. 从匹配结果进入面试
-7. AI 生成问题并完成面试
-8. 查看面试报告
-9. 在系统配置页运行 RAGas/本地启发式评测
-
 ## API 接口
 
 ### 认证接口

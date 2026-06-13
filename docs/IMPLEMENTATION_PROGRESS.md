@@ -2,16 +2,16 @@
 
 ## Current Goal
 
-将 SmartHR 收尾到可在阿里云轻量云服务器演示部署的 HR 闭环产品：岗位 -> 知识库 -> 简历 -> 匹配 -> 面试 -> 报告 -> RAG 评测。
+将 SmartHR 收尾到可演示的 HR 闭环产品：岗位 -> 知识库 -> 简历 -> 匹配 -> 面试 -> 报告 -> RAG 评测。
 
 ## Execution Decisions
 
 - 保持 Java + Python + Vue 架构。
-- 部署目标改为阿里云轻量应用服务器/单机 Docker Compose，最低 2 核 4G。
-- 生产演示只暴露 `80/443`，MySQL、Redis、Chroma、Java、Python、前端均在 Docker 内网通信。
+- 部署由用户从零手动执行；仓库内不保留本轮新增的生产 Compose/Nginx/证书占位模板。
+- 目标部署环境仍按阿里云轻量应用服务器/单机 Docker Compose，最低 2 核 4G 进行运行约束设计。
 - embedding 固定使用宿主机挂载的本地 `/opt/smarthr/models/bge-base-zh-v1.5`。
 - 2 核 4G 不常驻神经 reranker，使用 hybrid retrieval + embedding 相似度轻量排序。
-- mock embedding 只允许开发模式，生产模板显式 `ALLOW_MOCK_EMBEDDING=false`。
+- mock embedding 只允许开发模式；演示验收应显式设置 `ALLOW_MOCK_EMBEDDING=false`。
 - 不做 MCP/skill 集成；已有内部入口默认隐藏，仅显式开启 `EXPOSE_INTERNAL_RAG_TOOLS=true` 时可访问。
 
 ## Current Worktree Notes
@@ -52,18 +52,16 @@
   - [x] Pin `datasets`, `fsspec`, and `numpy` to versions compatible with Ragas and Chroma.
   - [x] Local Docker validation passed: all six compose services are running and healthy.
   - [x] Frontend `http://localhost`, Java `http://localhost:8080/api/health`, Python `http://localhost:8001/health`, and Nginx `/api/health` checks passed.
-- [ ] Phase 5: Final demo deployment baseline.
-  - [x] Added `docker-compose.aliyun.yml` for 阿里云轻量服务器单机部署。
-  - [x] Added `nginx/nginx.aliyun.conf` with HTTP -> HTTPS reverse proxy for frontend, Java API, and Python AI API.
-  - [x] Internal services no longer expose public ports in the production compose template.
-  - [x] Added 2 核 4G-oriented memory limits, Python single worker, Redis/MySQL memory caps, and Java heap cap.
+- [x] Phase 5: Runtime baseline without keeping deployment artifacts.
+  - [x] Removed the added `docker-compose.aliyun.yml`, `nginx/nginx.aliyun.conf`, and certificate placeholder at user request.
+  - [x] Deployment will be performed manually by the user from scratch.
   - [x] Fixed Java Dockerfile JVM option placement and default heap limit.
   - [x] Added local BGE embedding provider, model health check, and `/health/dependencies` / `/api/health/dependencies`.
   - [x] Added `sentence-transformers` dependency for local `bge-base-zh-v1.5`.
   - [x] Hid MCP/internal skill HTTP entrypoints by default.
   - [x] Extended RAG search response with `evidence[]`, `retrievalScores`, and `rankScores`.
   - [x] Routed resume/job indexing through the unified RAG pipeline and returned evidence-backed match fields.
-  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`, `docker compose -f docker-compose.aliyun.yml config --quiet`.
+  - [x] Validation passed before deployment artifact removal: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`.
 - [ ] Phase 6: Application evidence loop closeout.
   - [x] Added business-facing RAG evidence service for job, resume, knowledge and interview evidence.
   - [x] Added batch `/api/rag/rebuild` index rebuild endpoint.
@@ -99,8 +97,6 @@
 
 ## Phase 5 Notes
 
-- Production deployment command: `docker compose -f docker-compose.aliyun.yml up -d --build`.
-- HTTPS certificate files must exist at `deploy/certs/fullchain.pem` and `deploy/certs/privkey.pem` before starting the production reverse proxy.
-- Local BGE model directory must exist at `/opt/smarthr/models/bge-base-zh-v1.5` on the server.
+- Deployment files added earlier were removed at user request.
+- Local BGE model directory still must exist at `/opt/smarthr/models/bge-base-zh-v1.5` in the environment where Python runs.
 - Final manual验收 requires `/python/health/dependencies` to report local BGE loaded and `actualDimensions=768`.
-- This workstation did not run the full production stack because the 阿里云证书 and `/opt/smarthr/models/bge-base-zh-v1.5` model mount are server-side prerequisites.
