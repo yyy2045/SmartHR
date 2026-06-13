@@ -107,13 +107,15 @@ public class InterviewController {
 
         return sessionRepository.findBySessionId(sessionId)
                 .map(session -> {
-                    InterviewSessionDTO status = interviewService.getSessionStatus(sessionId);
-                    InterviewSessionDTO dto = new InterviewSessionDTO();
-                    dto.setSessionId(sessionId);
+                    InterviewSessionDTO dto = interviewService.getSessionStatus(sessionId);
                     dto.setJobId(session.getJobId());
                     dto.setResumeId(session.getResumeId());
-                    dto.setStatus(session.getStatus());
-                    dto.setComplete("COMPLETED".equals(session.getStatus()));
+                    if (dto.getStatus() == null || "UNKNOWN".equals(dto.getStatus())) {
+                        dto.setStatus(session.getStatus());
+                    }
+                    if ("COMPLETED".equals(session.getStatus())) {
+                        dto.setComplete(true);
+                    }
                     return ResponseEntity.ok(UnifiedResponse.success(dto));
                 })
                 .orElse(ResponseEntity.notFound().build());

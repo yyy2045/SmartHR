@@ -24,5 +24,5 @@ public class InterviewReportDTO {
     private List<String> strengths;
     private List<String> concerns;
     private List<String> interviewHighlights;
-    private List<String> qaSummary;
+    private List<Map<String, Object>> qaSummary;
 }

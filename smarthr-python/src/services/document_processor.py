@@ -177,7 +177,7 @@ class DocumentProcessor:
             embeddings=embeddings_list,
             documents=documents,
             ids=ids,
-            metadata=[metadata] * len(chunks)
+            metadatas=[metadata] * len(chunks)
         )
 
         return ids

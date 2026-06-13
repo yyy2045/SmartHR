@@ -105,7 +105,7 @@ public class InterviewService {
             throw new RuntimeException("调用 AI 服务失败: " + e.getMessage());
         }
 
-        String returnedSessionId = (String) body_response.get("session_id");
+        String returnedSessionId = getString(body_response, "sessionId", "session_id");
         if (returnedSessionId == null || returnedSessionId.isEmpty()) {
             throw new RuntimeException("AI 服务未返回 session_id");
         }
@@ -127,9 +127,7 @@ public class InterviewService {
         dto.setStatus("IN_PROGRESS");
         dto.setComplete(false);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> question = (Map<String, Object>) body_response.get("question");
-        dto.setCurrentQuestion(question);
+        dto.setCurrentQuestion(getMap(body_response, "currentQuestion", "question", "current_question"));
 
         return dto;
     }
@@ -170,19 +168,14 @@ public class InterviewService {
         InterviewSessionDTO dto = new InterviewSessionDTO();
         dto.setSessionId(sessionId);
         dto.setStatus((String) body_response.getOrDefault("status", "IN_PROGRESS"));
-        Object completeObj = body_response.get("is_complete");
-        dto.setComplete(completeObj instanceof Boolean ? (Boolean) completeObj : false);
+        dto.setComplete(getBoolean(body_response, false, "isComplete", "is_complete", "complete"));
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> question = (Map<String, Object>) body_response.get("question");
-        dto.setCurrentQuestion(question);
+        dto.setCurrentQuestion(getMap(body_response, "currentQuestion", "question", "current_question"));
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> skillScores = (Map<String, Object>) body_response.get("skillScores");
+        Map<String, Object> skillScores = getMap(body_response, "skillScores", "skill_scores");
         if (skillScores != null) dto.setSkillScores(skillScores);
 
-        @SuppressWarnings("unchecked")
-        Map<String, Object> behaviorScores = (Map<String, Object>) body_response.get("behaviorScores");
+        Map<String, Object> behaviorScores = getMap(body_response, "behaviorScores", "behavior_scores");
         if (behaviorScores != null) dto.setBehaviorScores(behaviorScores);
 
         // 如果 Python 端已标记完成，同步更新 MySQL session 状态
@@ -223,9 +216,9 @@ public class InterviewService {
                 throw new RuntimeException("面试会话不存在: " + sessionId);
             }
             report.setSessionId(dbSessionId);
-            report.setOverallScore(toBigDecimal(report_map.get("overall_score")));
-            report.setSkillScore(toBigDecimal(report_map.get("skill_score")));
-            report.setBehaviorScore(toBigDecimal(report_map.get("behavior_score")));
+            report.setOverallScore(toBigDecimal(getValue(report_map, "overallScore", "overall_score")));
+            report.setSkillScore(toBigDecimal(getValue(report_map, "skillScore", "skill_score")));
+            report.setBehaviorScore(toBigDecimal(getValue(report_map, "behaviorScore", "behavior_score")));
             report.setRecommendation((String) report_map.get("recommendation"));
             report.setSummary((String) report_map.get("summary"));
 
@@ -286,9 +279,9 @@ public class InterviewService {
 
             InterviewReportDTO dto = new InterviewReportDTO();
             dto.setSessionId(sessionId);
-            dto.setOverallScore(toBigDecimal(report_map.get("overall_score")));
-            dto.setSkillScore(toBigDecimal(report_map.get("skill_score")));
-            dto.setBehaviorScore(toBigDecimal(report_map.get("behavior_score")));
+            dto.setOverallScore(toBigDecimal(getValue(report_map, "overallScore", "overall_score")));
+            dto.setSkillScore(toBigDecimal(getValue(report_map, "skillScore", "skill_score")));
+            dto.setBehaviorScore(toBigDecimal(getValue(report_map, "behaviorScore", "behavior_score")));
             dto.setRecommendation((String) report_map.get("recommendation"));
             dto.setSummary((String) report_map.get("summary"));
 
@@ -298,7 +291,7 @@ public class InterviewService {
             Object concernsObj = report_map.get("concerns");
             dto.setConcerns(concernsObj instanceof List ? (List<String>) concernsObj : Collections.emptyList());
 
-            Object highlightsObj = report_map.get("interview_highlights");
+            Object highlightsObj = getValue(report_map, "interviewHighlights", "interview_highlights");
             dto.setInterviewHighlights(highlightsObj instanceof List ? (List<String>) highlightsObj : Collections.emptyList());
 
             Object skillScoresObj = report_map.get("skillScores");
@@ -316,7 +309,7 @@ public class InterviewService {
             }
 
             Object qaSummaryObj = report_map.get("qaSummary");
-            dto.setQaSummary(qaSummaryObj instanceof List ? (List<String>) qaSummaryObj : Collections.emptyList());
+            dto.setQaSummary(toMapList(qaSummaryObj));
 
             return dto;
         }
@@ -339,26 +332,18 @@ public class InterviewService {
             dto.setSessionId(sessionId);
             dto.setStatus(body.get("status") != null ? (String) body.get("status") : "UNKNOWN");
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> question = (Map<String, Object>) body.get("current_question");
-            dto.setCurrentQuestion(question);
-
-            Integer questionsAsked = (Integer) body.get("questions_asked");
-            dto.setQuestionsAsked(questionsAsked);
-
-            Boolean isComplete = (Boolean) body.get("is_complete");
-            dto.setComplete(isComplete != null ? isComplete : false);
+            dto.setCurrentQuestion(getMap(body, "currentQuestion", "current_question"));
+            dto.setQuestionsAsked(getInteger(body, "questionsAsked", "questions_asked"));
+            dto.setComplete(getBoolean(body, false, "isComplete", "is_complete"));
 
             @SuppressWarnings("unchecked")
             List<Map<String, Object>> history = (List<Map<String, Object>>) body.get("history");
             dto.setHistory(history != null ? history : Collections.emptyList());
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> skillScoresMap = (Map<String, Object>) body.get("skill_scores");
+            Map<String, Object> skillScoresMap = getMap(body, "skillScores", "skill_scores");
             if (skillScoresMap != null) dto.setSkillScores(skillScoresMap);
 
-            @SuppressWarnings("unchecked")
-            Map<String, Object> behaviorScoresMap = (Map<String, Object>) body.get("behavior_scores");
+            Map<String, Object> behaviorScoresMap = getMap(body, "behaviorScores", "behavior_scores");
             if (behaviorScoresMap != null) dto.setBehaviorScores(behaviorScoresMap);
 
             return dto;
@@ -376,6 +361,64 @@ public class InterviewService {
         } catch (NumberFormatException e) {
             return BigDecimal.ZERO;
         }
+    }
+
+    private Object getValue(Map<String, Object> map, String... keys) {
+        if (map == null) return null;
+        for (String key : keys) {
+            if (map.containsKey(key)) {
+                return map.get(key);
+            }
+        }
+        return null;
+    }
+
+    private String getString(Map<String, Object> map, String... keys) {
+        Object value = getValue(map, keys);
+        return value != null ? value.toString() : null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> getMap(Map<String, Object> map, String... keys) {
+        Object value = getValue(map, keys);
+        return value instanceof Map ? (Map<String, Object>) value : null;
+    }
+
+    private boolean getBoolean(Map<String, Object> map, boolean defaultValue, String... keys) {
+        Object value = getValue(map, keys);
+        return value instanceof Boolean ? (Boolean) value : defaultValue;
+    }
+
+    private Integer getInteger(Map<String, Object> map, String... keys) {
+        Object value = getValue(map, keys);
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        if (value != null) {
+            try {
+                return Integer.parseInt(value.toString());
+            } catch (NumberFormatException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> toMapList(Object value) {
+        if (!(value instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<?> raw = (List<?>) value;
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : raw) {
+            if (item instanceof Map) {
+                result.add((Map<String, Object>) item);
+            } else if (item != null) {
+                result.add(Map.of("answer", item.toString()));
+            }
+        }
+        return result;
     }
 
     private Map<String, BigDecimal> toDecimalMap(Map<String, Number> map) {

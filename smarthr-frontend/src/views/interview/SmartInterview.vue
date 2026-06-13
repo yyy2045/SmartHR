@@ -145,6 +145,7 @@ watch(
 const loadSession = async (sid) => {
   try {
     const res = await getInterviewSession(sid)
+    sessionId.value = sid
     messages.value = res.history || []
     skillScores.value = res.skillScores || {}
     behaviorScores.value = res.behaviorScores || {}
@@ -167,9 +168,9 @@ const createSession = async () => {
       return
     }
     const res = await createInterviewSession({
-      job_id: String(jobId),
-      resume_id: String(resumeId),
-      company_id: String(userCompanyId)
+      jobId,
+      resumeId,
+      companyId: userCompanyId
     })
     if (!res || !res.sessionId) {
       ElMessage.error('创建面试会话失败：服务未返回会话 ID')

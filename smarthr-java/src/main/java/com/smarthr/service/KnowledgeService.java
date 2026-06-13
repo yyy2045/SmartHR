@@ -202,7 +202,8 @@ public class KnowledgeService {
         // Call Python to delete from vector store - use documentId (UUID), not MySQL id
         documentRepository.findById(id).ifPresent(doc -> {
             String documentId = doc.getDocumentId();  // Java-generated UUID
-            String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId;
+            String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId
+                + (doc.getCompanyId() != null ? "?company_id=" + doc.getCompanyId() : "");
             try {
                 restTemplate.delete(url);
             } catch (Exception e) {

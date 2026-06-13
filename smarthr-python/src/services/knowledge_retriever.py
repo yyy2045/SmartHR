@@ -54,7 +54,7 @@ class KnowledgeRetriever:
             embeddings=[embedding],
             documents=[text],
             ids=[chunk_id],
-            metadata=[{
+            metadatas=[{
                 **metadata,
                 "company_id": company_id,
                 "type": "knowledge_entry"

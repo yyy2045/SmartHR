@@ -67,6 +67,7 @@ async def create_session(request: CreateSessionRequest):
         "job_id": request.job_id,
         "resume_id": request.resume_id,
         "company_id": request.company_id,
+        "status": "IN_PROGRESS",
         "current_agent": "MAIN",
         "messages": [],
         "skill_scores": {},
@@ -122,6 +123,13 @@ async def create_session(request: CreateSessionRequest):
     final_state = dict(initial_state)
     final_state["current_question"] = first_question
     try:
+        await interview_state_manager.append_message(
+            session_id,
+            role="interviewer",
+            content=first_question.get("question", ""),
+            metadata={"question_type": first_question.get("question_type", "OPENING")}
+        )
+        final_state["messages"] = await interview_state_manager.get_history(session_id)
         await interview_state_manager.save_state(session_id, final_state)
     except Exception as e:
         print(f"[interview] save final state failed: {e}")
@@ -235,6 +243,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
     # 通过 LLM 直接生成下一个问题（跳过 LangGraph 以稳定首响并避开节点链路异常）
     next_question_text = None
     knowledge_context = ""
+    qtype = "OPEN"
     try:
         from src.services.llm_service import llm_service
         if questions_asked < 2:
@@ -252,17 +261,15 @@ async def send_message(session_id: str, request: SendMessageRequest):
         if company_id:
             try:
                 from src.services.knowledge_retriever import knowledge_retriever
-                loop = asyncio.get_event_loop()
-                if not loop.is_running():
-                    kb_results = await knowledge_retriever.search_by_company(
-                        company_id=str(company_id),
-                        query=f"{topic} 岗位要求 公司文化",
-                        top_k=2
-                    )
-                    if kb_results:
-                        knowledge_context = "\n".join([
-                            r.get("document", "")[:300] for r in kb_results
-                        ])
+                kb_results = await knowledge_retriever.search_by_company(
+                    company_id=str(company_id),
+                    query=f"{topic} 岗位要求 公司文化",
+                    top_k=2
+                )
+                if kb_results:
+                    knowledge_context = "\n".join([
+                        r.get("document", "")[:300] for r in kb_results
+                    ])
             except Exception as e:
                 print(f"[interview] knowledge retrieval failed: {e}")
 
@@ -319,6 +326,13 @@ async def send_message(session_id: str, request: SendMessageRequest):
     state["is_complete"] = False
 
     try:
+        await interview_state_manager.append_message(
+            session_id,
+            role="interviewer",
+            content=next_question.get("question", ""),
+            metadata={"question_type": next_question.get("question_type", "OPEN")}
+        )
+        state["messages"] = await interview_state_manager.get_history(session_id)
         await interview_state_manager.save_state(session_id, state)
     except Exception as e:
         print(f"[interview] save state failed: {e}")
