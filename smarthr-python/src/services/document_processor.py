@@ -4,19 +4,12 @@
 
 import io
 from typing import List, Dict, Any, Optional
-from langchain_core.documents import Document
-from langchain_openai import OpenAIEmbeddings
-from src.config import settings
 
 
 class DocumentProcessor:
     """处理文档：提取文本、分块、向量化到知识库"""
 
     def __init__(self):
-        self.embeddings = OpenAIEmbeddings(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url
-        )
         self.chunk_size = 500
         self.chunk_overlap = 50
 
@@ -154,33 +147,23 @@ class DocumentProcessor:
 
     async def vectorize_chunks(self, chunks: List[str], metadata: Dict[str, Any]) -> List[str]:
         """将文本块向量化并存储到 Chroma"""
-        from src.services.vector_store import vector_store_service
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagIndexRequest
 
         if not chunks:
             return []
-
-        # 获取嵌入向量
-        embeddings_list = await self.embeddings.aembed_documents(chunks)
-
-        # 准备 Chroma 文档
-        documents = []
-        ids = []
-        for i, chunk in enumerate(chunks):
-            chunk_id = f"{metadata.get('doc_id', 'doc')}_chunk_{i}"
-            ids.append(chunk_id)
-            documents.append(chunk)
-
-        # 添加到向量存储
-        collection_name = metadata.get('collection', 'knowledge_base')
-        vector_store_service.add(
-            collection_name=collection_name,
-            embeddings=embeddings_list,
-            documents=documents,
-            ids=ids,
-            metadatas=[metadata] * len(chunks)
+        response = await rag_pipeline.index(
+            RagIndexRequest(
+                companyId=str(metadata.get("company_id") or metadata.get("companyId") or "default"),
+                sourceType=str(metadata.get("source_type") or metadata.get("doc_type") or "knowledge"),
+                sourceId=str(metadata.get("doc_id") or metadata.get("source_id") or "doc"),
+                title=str(metadata.get("title") or metadata.get("filename") or ""),
+                chunks=chunks,
+                collection=str(metadata.get("collection") or "knowledge_base"),
+                metadata=metadata,
+            )
         )
-
-        return ids
+        return response.chunkIds
 
     async def process_multiple_documents(self, files: List[Dict[str, Any]]) -> Dict[str, List[str]]:
         """

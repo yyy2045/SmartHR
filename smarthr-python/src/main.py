@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from src.api import health, resume, interview, knowledge, job
+from src.api import health, resume, interview, knowledge, job, rag
 
 from src.config import settings
 
@@ -36,6 +36,7 @@ app.include_router(resume.router, tags=["简历"])
 app.include_router(interview.router, tags=["面试"])
 app.include_router(knowledge.router, prefix="/api/knowledge", tags=["知识库"])
 app.include_router(job.router, tags=["岗位"])
+app.include_router(rag.router)
 
 @app.get("/")
 async def root():

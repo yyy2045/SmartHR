@@ -24,6 +24,16 @@ class Settings(BaseSettings):
     anthropic_api_key: str = os.getenv("ANTHROPIC_API_KEY", "")
     anthropic_model: str = os.getenv("ANTHROPIC_MODEL", "claude-3-sonnet-20240229")
 
+    # Embedding / rerank 配置 - 默认 mock，便于无 API Key 的本地测试
+    embedding_provider: str = os.getenv("EMBEDDING_PROVIDER", "mock")
+    embedding_api_key: str = os.getenv("EMBEDDING_API_KEY", "")
+    embedding_base_url: str = os.getenv("EMBEDDING_BASE_URL", "")
+    embedding_model: str = os.getenv("EMBEDDING_MODEL", "bge-m3")
+    embedding_dimensions: int = int(os.getenv("EMBEDDING_DIMENSIONS", "256"))
+    rerank_provider: str = os.getenv("RERANK_PROVIDER", "none")
+    rerank_base_url: str = os.getenv("RERANK_BASE_URL", "")
+    rerank_model: str = os.getenv("RERANK_MODEL", "bge-reranker-v2-m3")
+
     # Chroma 向量数据库
     chroma_host: str = os.getenv("CHROMA_HOST", "localhost")
     chroma_port: int = int(os.getenv("CHROMA_PORT", "8000"))

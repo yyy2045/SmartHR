@@ -34,6 +34,11 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
   - [x] Align Python dependency manifests for current imports.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm run build`.
 - [ ] Phase 2: Rebuild the RAG pipeline.
+  - [x] Add unified RAG schemas, embedding adapter, BM25 store, and hybrid search pipeline.
+  - [x] Add `/api/rag/index` and `/api/rag/search`.
+  - [x] Route knowledge document indexing and retrieval through the unified RAG pipeline.
+  - [x] Add mock-by-default embedding configuration for API-key-free local validation.
+  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm run build`.
 - [ ] Phase 3: Add Ragas evaluation, optional MCP Client hooks, internal skills, and docs.
 
 ## Phase 1 Tasks
