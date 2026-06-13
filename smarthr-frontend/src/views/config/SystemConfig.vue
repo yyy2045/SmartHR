@@ -63,11 +63,25 @@
           <template #header>
             <div class="card-header">
               <span>RAGas评测</span>
-              <el-button type="primary" size="small" @click="runEvaluation" :loading="evaluating">
-                运行评测
-              </el-button>
+              <div class="header-buttons">
+                <el-button size="small" @click="rebuildIndex" :loading="rebuilding">
+                  重建索引
+                </el-button>
+                <el-button type="primary" size="small" @click="runEvaluation" :loading="evaluating">
+                  运行评测
+                </el-button>
+              </div>
             </div>
           </template>
+
+          <el-alert
+            v-if="rebuildResult"
+            class="evaluation-notes"
+            :title="`索引重建完成：业务文档 ${rebuildResult.businessDocuments || 0} 条，知识库成功 ${rebuildResult.knowledgeIndexed || 0} 条，失败 ${rebuildResult.knowledgeFailed || 0} 条`"
+            type="success"
+            show-icon
+            :closable="false"
+          />
 
           <div class="evaluation-summary">
             <div class="summary-item">
@@ -128,6 +142,7 @@ import {
   checkDbStatus,
   getCompanyInfo,
   getRagEvaluation,
+  rebuildRagIndex,
   runRagEvaluation,
   saveCompanyInfo as saveCompanyApi
 } from '@/api/config'
@@ -137,6 +152,8 @@ const activeTab = ref('database')
 const saving = ref(false)
 const checking = ref(false)
 const evaluating = ref(false)
+const rebuilding = ref(false)
+const rebuildResult = ref(null)
 
 const companyInfo = reactive({
   id: null,
@@ -289,6 +306,21 @@ const runEvaluation = async () => {
   }
 }
 
+const rebuildIndex = async () => {
+  rebuilding.value = true
+  try {
+    const payload = {
+      companyId: companyInfo.id ? String(companyInfo.id) : undefined
+    }
+    rebuildResult.value = await rebuildRagIndex(payload)
+    ElMessage.success('RAG索引已重建')
+  } catch (error) {
+    ElMessage.error('RAG索引重建失败: ' + (error.message || '未知错误'))
+  } finally {
+    rebuilding.value = false
+  }
+}
+
 onMounted(() => {
   checkConnections()
   loadCompanyInfo()
@@ -315,6 +347,11 @@ const saveCompanyInfo = saveCompanyInfoHandler
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.header-buttons {
+  display: flex;
+  gap: 8px;
 }
 
 .evaluation-summary {

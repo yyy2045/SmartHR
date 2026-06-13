@@ -33,6 +33,12 @@
               </div>
               <div class="message-content">
                 <div class="message-text">{{ msg.content }}</div>
+                <div v-if="msg.evidence && msg.evidence.length" class="message-evidence">
+                  <div v-for="item in msg.evidence.slice(0, 3)" :key="item.chunkId" class="evidence-line">
+                    <el-tag size="small" effect="plain">{{ sourceTypeText(item.sourceType) }}</el-tag>
+                    <span>{{ item.title || item.sourceId }}</span>
+                  </div>
+                </div>
                 <div class="message-time">{{ msg.timestamp }}</div>
               </div>
             </div>
@@ -131,6 +137,24 @@ const isComplete = ref(false)
 const sending = ref(false)
 const chatContainer = ref()
 
+const sourceTypeText = (type) => {
+  const map = {
+    job: '岗位',
+    resume: '简历',
+    knowledge: '知识库',
+    interview: '面试'
+  }
+  return map[type] || type || '证据'
+}
+
+const normalizeHistory = (history = []) => history.map(item => ({
+  role: item.role,
+  content: item.content,
+  timestamp: item.timestamp || '',
+  evidence: item.metadata?.basisEvidence || [],
+  traceId: item.metadata?.traceId
+}))
+
 // 监听路由变化，支持从外部跳转后恢复会话
 watch(
   () => route.query.sessionId,
@@ -146,7 +170,7 @@ const loadSession = async (sid) => {
   try {
     const res = await getInterviewSession(sid)
     sessionId.value = sid
-    messages.value = res.history || []
+    messages.value = normalizeHistory(res.history || [])
     skillScores.value = res.skillScores || {}
     behaviorScores.value = res.behaviorScores || {}
     isComplete.value = res.isComplete || false
@@ -185,7 +209,9 @@ const createSession = async () => {
       messages.value.push({
         role: 'interviewer',
         content: questionText,
-        timestamp: dayjs().format('HH:mm')
+        timestamp: dayjs().format('HH:mm'),
+        evidence: res.currentQuestion.basisEvidence || [],
+        traceId: res.currentQuestion.traceId
       })
     }
     // 跳转到带 sessionId 的 URL，以便刷新后能恢复会话
@@ -220,7 +246,9 @@ const sendAnswer = async () => {
       messages.value.push({
         role: 'interviewer',
         content: questionText,
-        timestamp: dayjs().format('HH:mm')
+        timestamp: dayjs().format('HH:mm'),
+        evidence: res.currentQuestion.basisEvidence || [],
+        traceId: res.currentQuestion.traceId
       })
       questionsAsked.value++
     }
@@ -331,6 +359,27 @@ onMounted(async () => {
   font-size: 12px;
   color: #909399;
   margin-top: 4px;
+}
+
+.message-evidence {
+  margin-top: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.evidence-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 520px;
+  color: #606266;
+  font-size: 12px;
+}
+
+.evidence-line span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-input {

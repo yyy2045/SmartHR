@@ -97,6 +97,14 @@ class VectorStoreService:
             # 集合不存在或 ID 不存在时静默忽略
             print(f"[vector_store] delete error: {e}")
 
+    def delete_where(self, collection_name: str, filters: Dict[str, Any]):
+        """按 metadata 条件删除集合中的文档。"""
+        try:
+            collection = self.client.get_collection(collection_name)
+            collection.delete(where=filters)
+        except Exception as e:
+            print(f"[vector_store] delete_where error: {e}")
+
     def update(
         self,
         collection_name: str,

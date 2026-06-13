@@ -53,6 +53,26 @@ class BM25Store:
                 self._doc_freqs[collection][term] += 1
         self._recalculate_avg_len(collection)
 
+    def delete(self, collection: str, ids: List[str]):
+        for chunk_id in ids:
+            old = self._collections.get(collection, {}).pop(chunk_id, None)
+            if not old:
+                continue
+            for term in old.term_counts:
+                self._doc_freqs[collection][term] -= 1
+                if self._doc_freqs[collection][term] <= 0:
+                    del self._doc_freqs[collection][term]
+        self._recalculate_avg_len(collection)
+
+    def delete_by_source(self, collection: str, source_type: str, source_id: str):
+        docs = self._collections.get(collection, {})
+        ids = [
+            chunk_id for chunk_id, doc in docs.items()
+            if (doc.metadata.get("sourceType") or doc.metadata.get("source_type")) == source_type
+            and str(doc.metadata.get("sourceId") or doc.metadata.get("source_id")) == str(source_id)
+        ]
+        self.delete(collection, ids)
+
     def search(self, collection: str, query: str, top_k: int = 5, filters: Dict[str, Any] | None = None) -> List[Dict[str, Any]]:
         query_terms = tokenize(query)
         docs = list(self._collections.get(collection, {}).values())

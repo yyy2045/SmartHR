@@ -32,38 +32,26 @@ class RAGMatcher:
 
     async def index_resume(self, resume_id: str, text: str, metadata: Optional[Dict] = None):
         """将简历文本索引到统一 RAG pipeline。"""
-        from src.services.rag.pipeline import rag_pipeline
-        from src.services.rag.schemas import RagIndexRequest
+        from src.services.rag.evidence_service import rag_evidence_service
 
         meta = {**(metadata or {}), "type": "resume"}
-        await rag_pipeline.index(
-            RagIndexRequest(
-                companyId=str(meta.get("company_id") or meta.get("companyId") or "default"),
-                sourceType="resume",
-                sourceId=str(resume_id),
-                title=str(meta.get("candidate_name") or meta.get("title") or f"简历 {resume_id}"),
-                chunks=[text],
-                collection=self.collection_name,
-                metadata=meta,
-            )
+        await rag_evidence_service.index_resume(
+            resume_id=str(resume_id),
+            resume_text=text,
+            company_id=str(meta.get("company_id") or meta.get("companyId") or "default"),
+            metadata=meta,
         )
 
     async def index_job(self, job_id: str, jd_text: str, metadata: Optional[Dict] = None):
         """将岗位描述索引到统一 RAG pipeline。"""
-        from src.services.rag.pipeline import rag_pipeline
-        from src.services.rag.schemas import RagIndexRequest
+        from src.services.rag.evidence_service import rag_evidence_service
 
         meta = {**(metadata or {}), "type": "job"}
-        await rag_pipeline.index(
-            RagIndexRequest(
-                companyId=str(meta.get("company_id") or meta.get("companyId") or "default"),
-                sourceType="job",
-                sourceId=str(job_id),
-                title=str(meta.get("title") or f"岗位 {job_id}"),
-                chunks=[jd_text],
-                collection=self.collection_name,
-                metadata=meta,
-            )
+        await rag_evidence_service.index_job(
+            job_id=str(job_id),
+            job_text=jd_text,
+            company_id=str(meta.get("company_id") or meta.get("companyId") or "default"),
+            metadata=meta,
         )
 
     async def search_resumes(self, query_text: str, top_k: int = 10,
@@ -83,17 +71,13 @@ class RAGMatcher:
         top_k: int,
         filter_metadata: Optional[Dict],
     ) -> List[Dict[str, Any]]:
-        from src.services.rag.pipeline import rag_pipeline
-        from src.services.rag.schemas import RagSearchRequest
+        from src.services.rag.evidence_service import rag_evidence_service
 
-        response = await rag_pipeline.search(
-            RagSearchRequest(
-                query=query_text,
-                companyId=str(filter_metadata.get("company_id")) if filter_metadata and filter_metadata.get("company_id") else None,
-                sourceTypes=[source_type],
-                collection=self.collection_name,
-                topK=top_k,
-            )
+        response = await rag_evidence_service.search_evidence(
+            query=query_text,
+            company_id=str(filter_metadata.get("company_id")) if filter_metadata and filter_metadata.get("company_id") else "default",
+            source_types=[source_type],
+            top_k=top_k,
         )
         return [
             {
@@ -169,6 +153,17 @@ class RAGMatcher:
             except Exception as e:
                 print(f"[rag_matcher] LLM match details failed: {e}")
 
+        if not matching_points and matched_skills:
+            matching_points = [
+                {"技能": skill, "等级": "中", "详情": "简历与岗位关键词命中"}
+                for skill in matched_skills[:8]
+            ]
+        if not risk_points and missing_skills:
+            risk_points = [
+                {"技能": skill, "等级": "中", "详情": "岗位要求中存在但简历未明确体现"}
+                for skill in missing_skills[:8]
+            ]
+
         evidence: List[Dict[str, Any]] = []
         retrieval_scores: Dict[str, Any] = {}
         rank_scores: List[Dict[str, Any]] = []
@@ -219,14 +214,16 @@ class RAGMatcher:
         parsed_resume: Optional[Dict[str, Any]],
         company_id: str,
     ) -> None:
-        if resume_text and resume_text.strip():
-            metadata = {
-                "company_id": company_id,
-                "candidate_name": (parsed_resume or {}).get("candidate_name", "") if isinstance(parsed_resume, dict) else "",
-            }
-            await self.index_resume(resume_id or f"inline-{job_id}", resume_text, metadata)
-        if job_text and job_text.strip():
-            await self.index_job(job_id, job_text, {"company_id": company_id})
+        from src.services.rag.evidence_service import rag_evidence_service
+
+        await rag_evidence_service.ensure_job_resume_index(
+            job_id=str(job_id),
+            resume_id=str(resume_id or f"inline-{job_id}"),
+            job_text=job_text,
+            resume_text=resume_text,
+            company_id=str(company_id or "default"),
+            parsed_resume=parsed_resume,
+        )
 
     async def _search_match_evidence(
         self,
@@ -235,21 +232,17 @@ class RAGMatcher:
         parsed_resume: Optional[Dict[str, Any]],
         company_id: str,
     ):
-        from src.services.rag.pipeline import rag_pipeline
-        from src.services.rag.schemas import RagSearchRequest
+        from src.services.rag.evidence_service import rag_evidence_service
 
-        resume_brief = self._build_resume_brief(parsed_resume, resume_text)
-        query = "\n".join(part for part in [job_text[:700], resume_brief[:700]] if part)
-        if not query.strip():
-            query = "候选人与岗位匹配证据"
-        return await rag_pipeline.search(
-            RagSearchRequest(
-                query=query,
-                companyId=company_id,
-                sourceTypes=["job", "resume", "knowledge"],
-                collection=self.collection_name,
-                topK=6,
-            )
+        return await rag_evidence_service.search_evidence(
+            query=rag_evidence_service.build_match_query(
+                job_text=job_text,
+                resume_text=resume_text,
+                parsed_resume=parsed_resume,
+            ),
+            company_id=str(company_id or "default"),
+            source_types=["job", "resume", "knowledge"],
+            top_k=6,
         )
 
     def _skill_gap(

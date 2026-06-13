@@ -1,10 +1,12 @@
 """RAG evaluation service with optional Ragas execution and local fallback."""
 
+import json
 import math
 import os
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from src.config import settings
@@ -139,6 +141,9 @@ class RagEvaluationService:
         )
 
     def _default_samples(self, company_id: Optional[str]) -> List[RagEvaluationSample]:
+        file_samples = self._load_sample_file(company_id)
+        if file_samples:
+            return file_samples
         return [
             RagEvaluationSample(
                 companyId=company_id,
@@ -159,6 +164,25 @@ class RagEvaluationService:
                 sourceTypes=["knowledge"],
             ),
         ]
+
+    def _load_sample_file(self, company_id: Optional[str]) -> List[RagEvaluationSample]:
+        sample_path = Path(__file__).with_name("evaluation_samples.json")
+        if not sample_path.exists():
+            return []
+        try:
+            rows = json.loads(sample_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"[rag_evaluation] load sample file failed: {exc}")
+            return []
+
+        samples = []
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict) or not row.get("question"):
+                continue
+            current = dict(row)
+            current["companyId"] = str(company_id) if company_id else current.get("companyId")
+            samples.append(RagEvaluationSample(**current))
+        return samples
 
     def _build_answer(self, contexts: List[str]) -> str:
         if not contexts:

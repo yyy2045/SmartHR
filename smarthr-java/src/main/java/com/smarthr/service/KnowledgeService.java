@@ -145,7 +145,23 @@ public class KnowledgeService {
             String url = pythonServiceUrl + "/api/knowledge/documents/" + documentId + "/reindex"
                 + (companyId != null ? "?company_id=" + companyId : "");
             try {
-                restTemplate.postForEntity(url, null, Map.class);
+                ResponseEntity<Map> response = restTemplate.postForEntity(url, null, Map.class);
+                if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                    Map<String, Object> body = response.getBody();
+                    Object status = body.get("status");
+                    if (status != null) {
+                        doc.setIndexedStatus(String.valueOf(status));
+                    }
+                    Object chunks = body.get("chunks");
+                    if (chunks instanceof Number) {
+                        doc.setChunks(((Number) chunks).intValue());
+                    }
+                    Object chunkIds = body.get("chunk_ids");
+                    if (chunkIds instanceof List) {
+                        doc.setChunkIds(objectMapper.writeValueAsString(chunkIds));
+                    }
+                    documentRepository.save(doc);
+                }
             } catch (Exception e) {
                 throw new RuntimeException("Failed to reindex document: " + e.getMessage());
             }

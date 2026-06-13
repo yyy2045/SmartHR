@@ -3,8 +3,15 @@ package com.smarthr.controller;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smarthr.dto.UnifiedResponse;
+import com.smarthr.entity.Job;
+import com.smarthr.entity.KnowledgeDocument;
 import com.smarthr.entity.RagEvaluationRun;
+import com.smarthr.entity.Resume;
+import com.smarthr.repository.JobRepository;
+import com.smarthr.repository.KnowledgeDocumentRepository;
 import com.smarthr.repository.RagEvaluationRunRepository;
+import com.smarthr.repository.ResumeRepository;
+import com.smarthr.service.KnowledgeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
@@ -12,6 +19,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -24,6 +33,18 @@ public class SystemConfigController {
 
     @Autowired
     private RagEvaluationRunRepository ragEvaluationRunRepository;
+
+    @Autowired
+    private JobRepository jobRepository;
+
+    @Autowired
+    private ResumeRepository resumeRepository;
+
+    @Autowired
+    private KnowledgeDocumentRepository knowledgeDocumentRepository;
+
+    @Autowired
+    private KnowledgeService knowledgeService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -48,6 +69,87 @@ public class SystemConfigController {
     public UnifiedResponse<Map<String, Object>> saveLlmConfig(@RequestBody Map<String, Object> config) {
         llmConfig.putAll(config);
         return UnifiedResponse.success(new HashMap<>(llmConfig));
+    }
+
+    @PostMapping("/rag-index/rebuild")
+    public UnifiedResponse<Map<String, Object>> rebuildRagIndex(@RequestBody(required = false) Map<String, Object> request) {
+        try {
+            Long companyId = longValue(request != null ? request.get("companyId") : null);
+            List<Map<String, Object>> documents = new ArrayList<>();
+
+            List<Job> jobs = companyId != null ? jobRepository.findByCompanyId(companyId) : jobRepository.findAll();
+            for (Job job : jobs) {
+                String text = buildJobText(job);
+                if (text.isBlank()) {
+                    continue;
+                }
+                Map<String, Object> item = new HashMap<>();
+                item.put("sourceType", "job");
+                item.put("sourceId", String.valueOf(job.getId()));
+                item.put("title", job.getTitle());
+                item.put("text", text);
+                item.put("companyId", job.getCompanyId() != null ? String.valueOf(job.getCompanyId()) : "default");
+                item.put("metadata", Map.of(
+                        "company_id", job.getCompanyId() != null ? String.valueOf(job.getCompanyId()) : "default",
+                        "department", job.getDepartment() != null ? job.getDepartment() : "",
+                        "skills", job.getSkills() != null ? job.getSkills() : ""
+                ));
+                documents.add(item);
+            }
+
+            List<Resume> resumes = companyId != null ? resumeRepository.findAllByCompanyId(companyId) : resumeRepository.findAll();
+            for (Resume resume : resumes) {
+                if (resume.getRawText() == null || resume.getRawText().isBlank()) {
+                    continue;
+                }
+                Map<String, Object> item = new HashMap<>();
+                item.put("sourceType", "resume");
+                item.put("sourceId", String.valueOf(resume.getId()));
+                item.put("title", resume.getCandidateName() != null ? resume.getCandidateName() : "简历 " + resume.getId());
+                item.put("text", resume.getRawText());
+                item.put("companyId", resume.getCompanyId() != null ? String.valueOf(resume.getCompanyId()) : "default");
+                item.put("metadata", Map.of(
+                        "company_id", resume.getCompanyId() != null ? String.valueOf(resume.getCompanyId()) : "default",
+                        "candidate_name", resume.getCandidateName() != null ? resume.getCandidateName() : "",
+                        "job_id", resume.getJobId() != null ? String.valueOf(resume.getJobId()) : "",
+                        "parsed_data", resume.getParsedData() != null ? resume.getParsedData() : ""
+                ));
+                documents.add(item);
+            }
+
+            Map<String, Object> body = new HashMap<>();
+            body.put("documents", documents);
+            ResponseEntity<Map> response = restTemplate.postForEntity(
+                    aiServiceUrl + "/api/rag/rebuild",
+                    body,
+                    Map.class
+            );
+
+            Map<String, Object> result = response.getBody() != null ? new HashMap<>(response.getBody()) : new HashMap<>();
+            int knowledgeIndexed = 0;
+            int knowledgeFailed = 0;
+            List<String> knowledgeErrors = new ArrayList<>();
+            List<KnowledgeDocument> knowledgeDocuments = companyId != null
+                    ? knowledgeDocumentRepository.findAllByCompanyId(companyId)
+                    : knowledgeDocumentRepository.findAll();
+            for (KnowledgeDocument doc : knowledgeDocuments) {
+                try {
+                    knowledgeService.reindexDocument(doc.getId());
+                    knowledgeIndexed++;
+                } catch (Exception e) {
+                    knowledgeFailed++;
+                    knowledgeErrors.add(doc.getDocumentId() + ": " + e.getMessage());
+                }
+            }
+
+            result.put("businessDocuments", documents.size());
+            result.put("knowledgeIndexed", knowledgeIndexed);
+            result.put("knowledgeFailed", knowledgeFailed);
+            result.put("knowledgeErrors", knowledgeErrors);
+            return UnifiedResponse.success(result);
+        } catch (Exception e) {
+            return UnifiedResponse.error("RAG 索引重建失败: " + e.getMessage());
+        }
     }
 
     @PostMapping("/rag-evaluation/run")
@@ -121,6 +223,18 @@ public class SystemConfigController {
         return objectMapper.writeValueAsString(value);
     }
 
+    private String buildJobText(Job job) {
+        StringBuilder sb = new StringBuilder();
+        if (job.getTitle() != null) sb.append("岗位：").append(job.getTitle()).append("\n");
+        if (job.getDepartment() != null) sb.append("部门：").append(job.getDepartment()).append("\n");
+        if (job.getDescription() != null) sb.append("描述：").append(job.getDescription()).append("\n");
+        if (job.getRequirements() != null) sb.append("任职要求：").append(job.getRequirements()).append("\n");
+        if (job.getSkills() != null) sb.append("技能：").append(job.getSkills()).append("\n");
+        if (job.getExperienceYears() != null) sb.append("经验年限：").append(job.getExperienceYears()).append("\n");
+        if (job.getEducationLevel() != null) sb.append("学历：").append(job.getEducationLevel()).append("\n");
+        return sb.toString();
+    }
+
     private Object fromJson(String json) {
         if (json == null || json.isBlank()) {
             return null;
@@ -160,5 +274,18 @@ public class SystemConfigController {
             }
         }
         return 0;
+    }
+
+    private Long longValue(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                return Long.parseLong(String.valueOf(value));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
     }
 }

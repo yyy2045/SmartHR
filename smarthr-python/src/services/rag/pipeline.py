@@ -34,7 +34,13 @@ class RagPipeline:
         ]
         embeddings = await embedding_service.embed_documents(cleaned_chunks)
 
-        # Chroma add is not idempotent; delete first so reindex works.
+        # Chroma add is not idempotent; delete old source chunks first so reindex works
+        # even when the new chunk count is smaller than the previous one.
+        vector_store_service.delete_where(
+            request.collection,
+            {"$and": [{"source_type": request.sourceType}, {"source_id": str(request.sourceId)}]},
+        )
+        bm25_store.delete_by_source(request.collection, request.sourceType, request.sourceId)
         vector_store_service.delete(request.collection, chunk_ids)
         vector_store_service.add(
             collection_name=request.collection,

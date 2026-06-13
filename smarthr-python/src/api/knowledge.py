@@ -21,6 +21,7 @@ class DocumentUploadResponse(BaseModel):
     status: str
     chunks: int
     title: str
+    chunk_ids: List[str] = []
 
 
 class KnowledgeSearchRequest(BaseModel):
@@ -119,7 +120,8 @@ async def upload_document(
         filename=filename,
         status=metadata["status"],
         chunks=metadata.get("chunks", 0),
-        title=title or filename.rsplit('.', 1)[0] if filename else "Untitled"
+        title=title or filename.rsplit('.', 1)[0] if filename else "Untitled",
+        chunk_ids=metadata.get("chunk_ids", [])
     )
 
 
@@ -312,16 +314,42 @@ async def reindex_document(document_id: str, company_id: Optional[str] = None):
         raise HTTPException(status_code=404, detail="文档未找到")
 
     filename = doc.get("filename", "")
-    company_id = doc.get("company_id", "")
+    company_id = doc.get("company_id", "") or company_id or "default"
     doc_type = doc.get("doc_type", "OTHER")
+    title = doc.get("title") or filename or document_id
 
-    # 重新处理（需要重新读取文件内容）
-    # 目前仅更新状态
-    doc["status"] = "REINDEXING"
-    redis_service.set(doc_key, doc)
+    preview_key = f"doc_preview:{company_id}:{document_id}"
+    preview_data = redis_service.get(preview_key)
+    content = preview_data.get("content") if isinstance(preview_data, dict) else None
+    if not content:
+        raise HTTPException(status_code=400, detail="文档预览内容不存在，无法重建索引，请重新上传文档")
+
+    try:
+        chunks = document_processor.chunk_text(content)
+        chunk_ids = await document_processor.vectorize_chunks(chunks, {
+            **doc,
+            "doc_id": document_id,
+            "filename": filename,
+            "title": title,
+            "company_id": company_id,
+            "doc_type": doc_type,
+            "collection": "knowledge_base",
+            "source_type": "knowledge",
+        })
+        doc["status"] = "INDEXED"
+        doc["chunks"] = len(chunk_ids)
+        doc["chunk_ids"] = chunk_ids
+        redis_service.set(doc_key, doc, expire=None)
+    except Exception as e:
+        doc["status"] = "FAILED"
+        doc["error"] = str(e)
+        redis_service.set(doc_key, doc, expire=None)
+        raise HTTPException(status_code=500, detail=f"文档重建索引失败: {e}")
 
     return {
-        "status": "reindexing",
+        "status": doc["status"],
         "document_id": document_id,
-        "message": "文档重建索引已启动"
+        "chunks": doc.get("chunks", 0),
+        "chunk_ids": doc.get("chunk_ids", []),
+        "message": "文档索引已重建"
     }

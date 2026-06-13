@@ -64,6 +64,18 @@
   - [x] Extended RAG search response with `evidence[]`, `retrievalScores`, and `rankScores`.
   - [x] Routed resume/job indexing through the unified RAG pipeline and returned evidence-backed match fields.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`, `docker compose -f docker-compose.aliyun.yml config --quiet`.
+- [ ] Phase 6: Application evidence loop closeout.
+  - [x] Added business-facing RAG evidence service for job, resume, knowledge and interview evidence.
+  - [x] Added batch `/api/rag/rebuild` index rebuild endpoint.
+  - [x] Added Java `POST /api/config/rag-index/rebuild` to rebuild job/resume indexes and trigger knowledge reindexing.
+  - [x] Fixed knowledge reindexing to rebuild chunks from stored preview content and sync status/chunk IDs back to MySQL.
+  - [x] Made BM25 and Chroma reindex delete old chunks by source before rewriting.
+  - [x] Added RAG-driven interview evidence: every AI question carries `traceId`, `competency`, and `basisEvidence[]`.
+  - [x] Indexed interview Q/A turns as `interview` evidence for report reuse.
+  - [x] Extended reports with `risks`, `evidence`, `conclusionEvidence`, and `followUpBasis`.
+  - [x] Added manually maintained RAG evaluation samples in `evaluation_samples.json`.
+  - [x] Added frontend controls for manual RAG index rebuild and evidence display in matching, interview and report pages.
+  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`.
 
 ## Phase 1 Tasks
 

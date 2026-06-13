@@ -1,6 +1,6 @@
 """Unified RAG API."""
 
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from src.config import settings
 from src.services.mcp_client import mcp_client
 from src.services.rag.evaluation import rag_evaluation_service
+from src.services.rag.evidence_service import rag_evidence_service
 from src.services.rag.pipeline import rag_pipeline
 from src.services.rag.schemas import (
     RagEvaluationRequest,
@@ -28,6 +29,27 @@ class ToolCallRequest(BaseModel):
     arguments: Dict[str, Any] = {}
 
 
+class RagRebuildDocument(BaseModel):
+    sourceType: str
+    sourceId: str
+    title: str = ""
+    text: str = ""
+    companyId: str = "default"
+    metadata: Dict[str, Any] = {}
+
+
+class RagRebuildRequest(BaseModel):
+    documents: List[RagRebuildDocument]
+
+
+class RagRebuildResponse(BaseModel):
+    status: str
+    indexed: int
+    skipped: int
+    failed: int
+    details: List[Dict[str, Any]]
+
+
 @router.post("/index", response_model=RagIndexResponse)
 async def index_documents(request: RagIndexRequest):
     """Index normalized chunks into the unified RAG pipeline."""
@@ -46,6 +68,59 @@ async def search_documents(request: RagSearchRequest):
         return await rag_pipeline.search(request)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"RAG 检索失败: {e}")
+
+
+@router.post("/rebuild", response_model=RagRebuildResponse)
+async def rebuild_index(request: RagRebuildRequest):
+    """Batch rebuild business documents into the unified RAG index."""
+    details: List[Dict[str, Any]] = []
+    indexed = 0
+    skipped = 0
+    failed = 0
+
+    for document in request.documents:
+        if not document.text or not document.text.strip():
+            skipped += 1
+            details.append({
+                "sourceType": document.sourceType,
+                "sourceId": document.sourceId,
+                "status": "skipped",
+                "reason": "text 为空",
+            })
+            continue
+        try:
+            chunk_ids = await rag_evidence_service.index_text(
+                source_type=document.sourceType,
+                source_id=document.sourceId,
+                title=document.title,
+                text=document.text,
+                company_id=document.companyId,
+                metadata=document.metadata,
+            )
+            indexed += 1
+            details.append({
+                "sourceType": document.sourceType,
+                "sourceId": document.sourceId,
+                "status": "indexed",
+                "chunks": len(chunk_ids),
+                "chunkIds": chunk_ids,
+            })
+        except Exception as exc:
+            failed += 1
+            details.append({
+                "sourceType": document.sourceType,
+                "sourceId": document.sourceId,
+                "status": "failed",
+                "error": str(exc),
+            })
+
+    return RagRebuildResponse(
+        status="completed" if failed == 0 else "partial_failed",
+        indexed=indexed,
+        skipped=skipped,
+        failed=failed,
+        details=details,
+    )
 
 
 @router.post("/evaluations/run", response_model=RagEvaluationResponse)

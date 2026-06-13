@@ -251,6 +251,17 @@ public class InterviewService {
             Object concernsEndObj = report_map.get("concerns");
             dto.setConcerns(concernsEndObj instanceof List ? (List<String>) concernsEndObj : Collections.emptyList());
 
+            Object risksEndObj = report_map.get("risks");
+            dto.setRisks(risksEndObj instanceof List ? (List<String>) risksEndObj : Collections.emptyList());
+
+            Object highlightsEndObj = getValue(report_map, "interviewHighlights", "interview_highlights");
+            dto.setInterviewHighlights(highlightsEndObj instanceof List ? (List<String>) highlightsEndObj : Collections.emptyList());
+
+            dto.setQaSummary(toMapList(report_map.get("qaSummary")));
+            dto.setEvidence(toMapList(report_map.get("evidence")));
+            dto.setConclusionEvidence(toMapList(report_map.get("conclusionEvidence")));
+            dto.setFollowUpBasis(toMapList(report_map.get("followUpBasis")));
+
             return dto;
         }
 
@@ -291,6 +302,9 @@ public class InterviewService {
             Object concernsObj = report_map.get("concerns");
             dto.setConcerns(concernsObj instanceof List ? (List<String>) concernsObj : Collections.emptyList());
 
+            Object risksObj = report_map.get("risks");
+            dto.setRisks(risksObj instanceof List ? (List<String>) risksObj : Collections.emptyList());
+
             Object highlightsObj = getValue(report_map, "interviewHighlights", "interview_highlights");
             dto.setInterviewHighlights(highlightsObj instanceof List ? (List<String>) highlightsObj : Collections.emptyList());
 
@@ -310,6 +324,9 @@ public class InterviewService {
 
             Object qaSummaryObj = report_map.get("qaSummary");
             dto.setQaSummary(toMapList(qaSummaryObj));
+            dto.setEvidence(toMapList(report_map.get("evidence")));
+            dto.setConclusionEvidence(toMapList(report_map.get("conclusionEvidence")));
+            dto.setFollowUpBasis(toMapList(report_map.get("followUpBasis")));
 
             return dto;
         }

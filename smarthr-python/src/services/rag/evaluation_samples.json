@@ -1,0 +1,22 @@
+[
+  {
+    "question": "候选人的核心技能与岗位要求是否匹配？",
+    "groundTruth": "回答必须引用岗位要求和简历证据，说明技能命中和技能缺口。",
+    "sourceTypes": ["job", "resume"]
+  },
+  {
+    "question": "面试中应该优先追问哪些能力风险？",
+    "groundTruth": "回答必须基于岗位、简历或已有面试记录指出需要追问的风险点。",
+    "sourceTypes": ["job", "resume", "interview"]
+  },
+  {
+    "question": "企业知识库中有哪些招聘或面试规范需要遵守？",
+    "groundTruth": "回答必须引用知识库中的政策、手册或历史记录。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "面试报告的录用建议应当依据哪些证据？",
+    "groundTruth": "回答必须能回溯到岗位、简历、知识库或面试问答证据。",
+    "sourceTypes": ["job", "resume", "knowledge", "interview"]
+  }
+]
