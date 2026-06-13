@@ -1,19 +1,18 @@
-# SmartHR RAG/Agent Optimization Progress
+# SmartHR 最终收尾进度
 
 ## Current Goal
 
-Upgrade SmartHR into a portfolio-grade AI recruitment Agent project with a complete business loop:
-knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP client, and internal Agent skills.
+将 SmartHR 收尾到可在阿里云轻量云服务器演示部署的 HR 闭环产品：岗位 -> 知识库 -> 简历 -> 匹配 -> 面试 -> 报告 -> RAG 评测。
 
 ## Execution Decisions
 
-- Keep the Java + Python + Vue architecture.
-- Allow major rewrites in the Python AI layer.
-- Prioritize business loop over standalone benchmark scores or decorative Agent features.
-- Rebuild RAG as a full pipeline with hybrid retrieval, rerank-ready interfaces, source tracing, and Ragas evaluation.
-- Add project-internal skills, not Codex Skills.
-- Add optional MCP Client support for file/material tools; failures degrade silently to internal RAG.
-- Development reset may clear MySQL, Redis, and Chroma.
+- 保持 Java + Python + Vue 架构。
+- 部署目标改为阿里云轻量应用服务器/单机 Docker Compose，最低 2 核 4G。
+- 生产演示只暴露 `80/443`，MySQL、Redis、Chroma、Java、Python、前端均在 Docker 内网通信。
+- embedding 固定使用宿主机挂载的本地 `/opt/smarthr/models/bge-base-zh-v1.5`。
+- 2 核 4G 不常驻神经 reranker，使用 hybrid retrieval + embedding 相似度轻量排序。
+- mock embedding 只允许开发模式，生产模板显式 `ALLOW_MOCK_EMBEDDING=false`。
+- 不做 MCP/skill 集成；已有内部入口默认隐藏，仅显式开启 `EXPOSE_INTERNAL_RAG_TOOLS=true` 时可访问。
 
 ## Current Worktree Notes
 
@@ -53,6 +52,18 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
   - [x] Pin `datasets`, `fsspec`, and `numpy` to versions compatible with Ragas and Chroma.
   - [x] Local Docker validation passed: all six compose services are running and healthy.
   - [x] Frontend `http://localhost`, Java `http://localhost:8080/api/health`, Python `http://localhost:8001/health`, and Nginx `/api/health` checks passed.
+- [ ] Phase 5: Final demo deployment baseline.
+  - [x] Added `docker-compose.aliyun.yml` for 阿里云轻量服务器单机部署。
+  - [x] Added `nginx/nginx.aliyun.conf` with HTTP -> HTTPS reverse proxy for frontend, Java API, and Python AI API.
+  - [x] Internal services no longer expose public ports in the production compose template.
+  - [x] Added 2 核 4G-oriented memory limits, Python single worker, Redis/MySQL memory caps, and Java heap cap.
+  - [x] Fixed Java Dockerfile JVM option placement and default heap limit.
+  - [x] Added local BGE embedding provider, model health check, and `/health/dependencies` / `/api/health/dependencies`.
+  - [x] Added `sentence-transformers` dependency for local `bge-base-zh-v1.5`.
+  - [x] Hid MCP/internal skill HTTP entrypoints by default.
+  - [x] Extended RAG search response with `evidence[]`, `retrievalScores`, and `rankScores`.
+  - [x] Routed resume/job indexing through the unified RAG pipeline and returned evidence-backed match fields.
+  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`, `docker compose -f docker-compose.aliyun.yml config --quiet`.
 
 ## Phase 1 Tasks
 
@@ -64,13 +75,20 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
 
 ## Phase 3 Notes
 
-- RAG evaluation defaults to `RAGAS_MODE=auto`: it uses Ragas only when dependencies and model configuration are available, otherwise it returns deterministic local metrics so the demo can run without API keys.
+- RAG evaluation should run as `RAGAS_MODE=heuristic` on 2 核 4G demo servers unless an external evaluator model is configured.
 - Java exposes `POST /api/config/rag-evaluation/run` and `GET /api/config/rag-evaluation`; successful runs are saved to `rag_evaluation_runs`.
-- Internal Agent skills are exposed under `/api/rag/skills` and `/api/rag/skills/call`.
-- MCP is optional through `MCP_ENABLED`, `MCP_GATEWAY_URL`, and `MCP_TIMEOUT_SECONDS`; disabled or failed MCP calls fall back to internal tools.
+- Internal Agent skill and MCP HTTP routes are hidden by default and are not part of the final demo surface.
 
 ## Phase 4 Notes
 
 - Local Docker uses the ignored `docker-compose.yml`; the current local copy maps Docker MySQL to host port `3307` because the machine's native MySQL service still owns `3306`.
 - The Docker MySQL/Redis/Chroma volumes were reset during validation so the database could be initialized with the current local `.env` credentials.
 - Do not print expanded `docker compose config` output because it includes `.env` secrets.
+
+## Phase 5 Notes
+
+- Production deployment command: `docker compose -f docker-compose.aliyun.yml up -d --build`.
+- HTTPS certificate files must exist at `deploy/certs/fullchain.pem` and `deploy/certs/privkey.pem` before starting the production reverse proxy.
+- Local BGE model directory must exist at `/opt/smarthr/models/bge-base-zh-v1.5` on the server.
+- Final manual验收 requires `/python/health/dependencies` to report local BGE loaded and `actualDimensions=768`.
+- This workstation did not run the full production stack because the 阿里云证书 and `/opt/smarthr/models/bge-base-zh-v1.5` model mount are server-side prerequisites.

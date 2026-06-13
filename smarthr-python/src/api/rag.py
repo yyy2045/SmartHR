@@ -5,6 +5,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from src.config import settings
 from src.services.mcp_client import mcp_client
 from src.services.rag.evaluation import rag_evaluation_service
 from src.services.rag.pipeline import rag_pipeline
@@ -65,6 +66,8 @@ async def latest_evaluation():
 @router.get("/skills")
 async def list_internal_skills():
     """List project-internal Agent skills/tools."""
+    if not settings.expose_internal_rag_tools:
+        raise HTTPException(status_code=404, detail="internal RAG tools are not exposed")
     ensure_recruitment_skills_registered()
     return {
         "skills": tool_registry.list_tools(),
@@ -77,6 +80,8 @@ async def list_internal_skills():
 @router.post("/skills/call")
 async def call_internal_skill(request: ToolCallRequest):
     """Call a registered project-internal skill/tool."""
+    if not settings.expose_internal_rag_tools:
+        raise HTTPException(status_code=404, detail="internal RAG tools are not exposed")
     ensure_recruitment_skills_registered()
     return await tool_registry.call(request.name, request.arguments)
 
@@ -84,4 +89,6 @@ async def call_internal_skill(request: ToolCallRequest):
 @router.get("/mcp/tools")
 async def list_mcp_tools():
     """List optional MCP gateway tools."""
+    if not settings.expose_internal_rag_tools:
+        raise HTTPException(status_code=404, detail="MCP tools are not exposed")
     return await mcp_client.list_tools()

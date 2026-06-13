@@ -155,7 +155,7 @@ class DocumentProcessor:
         response = await rag_pipeline.index(
             RagIndexRequest(
                 companyId=str(metadata.get("company_id") or metadata.get("companyId") or "default"),
-                sourceType=str(metadata.get("source_type") or metadata.get("doc_type") or "knowledge"),
+                sourceType=str(metadata.get("source_type") or "knowledge"),
                 sourceId=str(metadata.get("doc_id") or metadata.get("source_id") or "doc"),
                 title=str(metadata.get("title") or metadata.get("filename") or ""),
                 chunks=chunks,

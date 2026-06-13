@@ -77,10 +77,25 @@
         </template>
       </el-dialog>
 
-      <el-dialog v-model="showMatchDialog" title="匹配详情" width="600px">
+      <el-dialog v-model="showMatchDialog" title="匹配详情" width="760px">
         <div v-if="matchResult">
           <el-progress :percentage="Math.round(matchResult.matchScore || 0)" :color="getMatchColor(matchResult.matchScore)" />
+          <p v-if="matchResult.summary" class="match-summary">{{ matchResult.summary }}</p>
           <el-divider />
+          <h4>技能命中</h4>
+          <div v-if="matchResult.matchedSkills && matchResult.matchedSkills.length" class="tag-list">
+            <el-tag v-for="skill in matchResult.matchedSkills" :key="skill" type="success" effect="plain">
+              {{ skill }}
+            </el-tag>
+          </div>
+          <p v-else>暂无技能命中</p>
+          <h4>技能缺口</h4>
+          <div v-if="matchResult.missingSkills && matchResult.missingSkills.length" class="tag-list">
+            <el-tag v-for="skill in matchResult.missingSkills" :key="skill" type="warning" effect="plain">
+              {{ skill }}
+            </el-tag>
+          </div>
+          <p v-else>暂无明显技能缺口</p>
           <h4>匹配要点</h4>
           <ul v-if="matchResult.matchingPoints && matchResult.matchingPoints.length">
             <li v-for="(point, idx) in matchResult.matchingPoints" :key="idx">
@@ -99,6 +114,18 @@
             </li>
           </ul>
           <p v-else>暂无风险要点</p>
+          <h4>证据来源</h4>
+          <div v-if="matchResult.evidence && matchResult.evidence.length" class="evidence-list">
+            <div v-for="item in matchResult.evidence" :key="item.chunkId" class="evidence-item">
+              <div class="evidence-head">
+                <el-tag size="small">{{ sourceTypeText(item.sourceType) }}</el-tag>
+                <strong>{{ item.title || item.sourceId || '未命名来源' }}</strong>
+                <span>{{ Math.round((item.score || 0) * 100) }}%</span>
+              </div>
+              <p>{{ item.highlight || item.text }}</p>
+            </div>
+          </div>
+          <p v-else>暂无证据来源</p>
         </div>
       </el-dialog>
     </div>
@@ -157,6 +184,16 @@ const getLevelType = (level) => {
   if (l === '高' || l === 'high') return 'danger'
   if (l === '中' || l === 'medium') return 'warning'
   return 'info'
+}
+
+const sourceTypeText = (type) => {
+  const map = {
+    job: '岗位',
+    resume: '简历',
+    knowledge: '知识库',
+    interview: '面试'
+  }
+  return map[type] || type || '来源'
 }
 
 const getStatusType = (status) => {
@@ -278,5 +315,55 @@ onMounted(() => {
   display: flex;
   gap: 6px;
   flex-wrap: nowrap;
+}
+
+.match-summary {
+  margin: 12px 0 0;
+  color: #606266;
+  line-height: 1.6;
+}
+
+.tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.evidence-list {
+  display: grid;
+  gap: 10px;
+}
+
+.evidence-item {
+  padding: 10px 12px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.evidence-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  font-size: 13px;
+}
+
+.evidence-head strong {
+  flex: 1;
+  min-width: 0;
+  color: #303133;
+}
+
+.evidence-head span {
+  color: #909399;
+}
+
+.evidence-item p {
+  margin: 0;
+  color: #606266;
+  font-size: 13px;
+  line-height: 1.6;
+  word-break: break-word;
 }
 </style>

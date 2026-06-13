@@ -117,9 +117,19 @@ async def match_resume(request: ResumeMatchRequest):
             "status": "matched",
             "resume_id": result.resume_id,
             "match_score": result.score,
+            "matchScore": result.score,
             "matching_points": result.matching_points,
+            "matchingPoints": result.matching_points,
             "risk_points": result.risk_points,
-            "summary": result.summary
+            "riskPoints": result.risk_points,
+            "summary": result.summary,
+            "matchedSkills": result.matched_skills,
+            "missingSkills": result.missing_skills,
+            "risks": result.risks,
+            "evidence": result.evidence,
+            "traceId": result.trace_id,
+            "retrievalScores": result.retrieval_scores,
+            "rankScores": result.rank_scores,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"简历匹配失败: {str(e)}")

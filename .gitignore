@@ -40,6 +40,8 @@ smarthr-java/src/main/resources/application.yml
 smarthr-python/.env
 *.local.yml
 *.local.yaml
+deploy/certs/*
+!deploy/certs/.gitkeep
 
 # Keep the example template but ignore actual config with secrets
 # smarthr-python/.env.example  # 已上传到仓库

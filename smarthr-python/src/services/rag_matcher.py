@@ -2,122 +2,108 @@
 RAG 匹配器 - 对简历和岗位进行向量化和语义匹配
 """
 
-import math
-import asyncio
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class MatchResult(BaseModel):
     """单份简历的匹配结果"""
     resume_id: str
     score: float  # 0-100
-    matching_points: List[Dict[str, Any]] = []
-    risk_points: List[Dict[str, Any]] = []
+    matching_points: List[Dict[str, Any]] = Field(default_factory=list)
+    risk_points: List[Dict[str, Any]] = Field(default_factory=list)
     summary: str = ""
+    matched_skills: List[str] = Field(default_factory=list)
+    missing_skills: List[str] = Field(default_factory=list)
+    risks: List[str] = Field(default_factory=list)
+    evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    trace_id: Optional[str] = None
+    retrieval_scores: Dict[str, Any] = Field(default_factory=dict)
+    rank_scores: List[Dict[str, Any]] = Field(default_factory=list)
 
 
 class RAGMatcher:
     """基于 Chroma 向量存储的 RAG 简历匹配"""
 
     def __init__(self):
-        from src.services.vector_store import vector_store_service
         from src.services.llm_service import llm_service
-        self.vector_store = vector_store_service
         self.llm = llm_service
-        self._embeddings = None
-
-    def _get_embeddings(self):
-        """延迟加载嵌入向量（DeepSeek 的 OpenAI 兼容格式）"""
-        if self._embeddings is None:
-            from langchain_community.embeddings import OpenAIEmbeddings
-            from src.config import settings
-
-            self._embeddings = OpenAIEmbeddings(
-                api_key=settings.deepseek_api_key,
-                base_url=f"{settings.deepseek_base_url}/v1/embeddings",
-                model="text-embedding-3-small"
-            )
-        return self._embeddings
-
-    def _cosine_similarity(self, vec1: List[float], vec2: List[float]) -> float:
-        """计算两个向量的余弦相似度"""
-        dot = sum(a * b for a, b in zip(vec1, vec2))
-        norm1 = math.sqrt(sum(a * a for a in vec1))
-        norm2 = math.sqrt(sum(b * b for b in vec2))
-        if norm1 == 0 or norm2 == 0:
-            return 0.0
-        return dot / (norm1 * norm2)
-
-    def _vector_to_list(self, embedding) -> List[float]:
-        """将嵌入向量转换为浮点数列表"""
-        if hasattr(embedding, 'tolist'):
-            return embedding.tolist()
-        elif isinstance(embedding, list):
-            return embedding
-        return list(embedding)
+        self.collection_name = "knowledge_base"
 
     async def index_resume(self, resume_id: str, text: str, metadata: Optional[Dict] = None):
-        """将简历文本向量化和存储到 Chroma"""
-        embeddings = self._get_embeddings()
-        embedding_vec = embeddings.embed_query(text)
-        embedding_list = self._vector_to_list(embedding_vec)
+        """将简历文本索引到统一 RAG pipeline。"""
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagIndexRequest
 
-        meta = metadata or {}
-        meta["type"] = "resume"
-
-        self.vector_store.add(
-            collection_name="resumes",
-            documents=[text],
-            embeddings=[embedding_list],
-            ids=[resume_id],
-            metadatas=[meta]
+        meta = {**(metadata or {}), "type": "resume"}
+        await rag_pipeline.index(
+            RagIndexRequest(
+                companyId=str(meta.get("company_id") or meta.get("companyId") or "default"),
+                sourceType="resume",
+                sourceId=str(resume_id),
+                title=str(meta.get("candidate_name") or meta.get("title") or f"简历 {resume_id}"),
+                chunks=[text],
+                collection=self.collection_name,
+                metadata=meta,
+            )
         )
 
     async def index_job(self, job_id: str, jd_text: str, metadata: Optional[Dict] = None):
-        """将岗位描述向量化和存储到 Chroma"""
-        embeddings = self._get_embeddings()
-        embedding_vec = embeddings.embed_query(jd_text)
-        embedding_list = self._vector_to_list(embedding_vec)
+        """将岗位描述索引到统一 RAG pipeline。"""
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagIndexRequest
 
-        meta = metadata or {}
-        meta["type"] = "job"
-
-        self.vector_store.add(
-            collection_name="jobs",
-            documents=[jd_text],
-            embeddings=[embedding_list],
-            ids=[job_id],
-            metadatas=[meta]
+        meta = {**(metadata or {}), "type": "job"}
+        await rag_pipeline.index(
+            RagIndexRequest(
+                companyId=str(meta.get("company_id") or meta.get("companyId") or "default"),
+                sourceType="job",
+                sourceId=str(job_id),
+                title=str(meta.get("title") or f"岗位 {job_id}"),
+                chunks=[jd_text],
+                collection=self.collection_name,
+                metadata=meta,
+            )
         )
 
     async def search_resumes(self, query_text: str, top_k: int = 10,
                              filter_metadata: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """根据文本查询搜索简历"""
-        embeddings = self._get_embeddings()
-        query_vec = embeddings.embed_query(query_text)
-        query_list = self._vector_to_list(query_vec)
-
-        return self.vector_store.search(
-            collection_name="resumes",
-            query_embedding=query_list,
-            top_k=top_k,
-            filters=filter_metadata
-        )
+        """根据文本查询搜索简历。"""
+        return await self._search_source_type("resume", query_text, top_k, filter_metadata)
 
     async def search_jobs(self, query_text: str, top_k: int = 10,
                           filter_metadata: Optional[Dict] = None) -> List[Dict[str, Any]]:
-        """根据文本查询搜索岗位"""
-        embeddings = self._get_embeddings()
-        query_vec = embeddings.embed_query(query_text)
-        query_list = self._vector_to_list(query_vec)
+        """根据文本查询搜索岗位。"""
+        return await self._search_source_type("job", query_text, top_k, filter_metadata)
 
-        return self.vector_store.search(
-            collection_name="jobs",
-            query_embedding=query_list,
-            top_k=top_k,
-            filters=filter_metadata
+    async def _search_source_type(
+        self,
+        source_type: str,
+        query_text: str,
+        top_k: int,
+        filter_metadata: Optional[Dict],
+    ) -> List[Dict[str, Any]]:
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagSearchRequest
+
+        response = await rag_pipeline.search(
+            RagSearchRequest(
+                query=query_text,
+                companyId=str(filter_metadata.get("company_id")) if filter_metadata and filter_metadata.get("company_id") else None,
+                sourceTypes=[source_type],
+                collection=self.collection_name,
+                topK=top_k,
+            )
         )
+        return [
+            {
+                "id": source.chunkId,
+                "document": source.content,
+                "distance": max(0.0, 1.0 - source.score),
+                "metadata": source.metadata,
+            }
+            for source in response.sources
+        ]
 
     async def match(self, job_id: str, resume_text: str,
                     resume_id: Optional[str] = None,
@@ -137,7 +123,7 @@ class RAGMatcher:
         from src.services.redis_service import redis_service
 
         # 结果缓存：相同 (company_id, job_id, resume_id) 24h 内复用，避免重复点击烧 token
-        cache_key = f"match:{company_id}:{job_id}:{resume_id or 'none'}"
+        cache_key = f"match:v2:{company_id}:{job_id}:{resume_id or 'none'}"
         try:
             cached = redis_service.get(cache_key)
             if cached and isinstance(cached, dict) and "score" in cached:
@@ -148,6 +134,16 @@ class RAGMatcher:
         # 关键词提取（支持中英文）
         job_keywords = self._extract_keywords(job_text)
         resume_keywords = self._extract_keywords(resume_text)
+        matched_skills, missing_skills = self._skill_gap(job_keywords, resume_keywords, parsed_resume)
+
+        await self._index_match_context(
+            job_id=job_id,
+            resume_id=resume_id,
+            job_text=job_text,
+            resume_text=resume_text,
+            parsed_resume=parsed_resume,
+            company_id=company_id or "default",
+        )
 
         # 多维度客观评分
         score = self._calculate_objective_score(
@@ -173,12 +169,37 @@ class RAGMatcher:
             except Exception as e:
                 print(f"[rag_matcher] LLM match details failed: {e}")
 
+        evidence: List[Dict[str, Any]] = []
+        retrieval_scores: Dict[str, Any] = {}
+        rank_scores: List[Dict[str, Any]] = []
+        trace_id = None
+        try:
+            search_response = await self._search_match_evidence(
+                job_text=job_text,
+                resume_text=resume_text,
+                parsed_resume=parsed_resume,
+                company_id=company_id or "default",
+            )
+            evidence = [item.model_dump() for item in search_response.evidence]
+            retrieval_scores = search_response.retrievalScores
+            rank_scores = search_response.rankScores
+            trace_id = search_response.traceId
+        except Exception as e:
+            print(f"[rag_matcher] evidence retrieval failed: {e}")
+
         result = MatchResult(
             resume_id=resume_id or "unknown",
             score=round(score, 1),
             matching_points=matching_points,
             risk_points=risk_points,
-            summary=f"简历与岗位匹配分数 {score:.1f}/100"
+            summary=f"简历与岗位匹配分数 {score:.1f}/100",
+            matched_skills=matched_skills,
+            missing_skills=missing_skills,
+            risks=self._risk_texts(risk_points, missing_skills),
+            evidence=evidence,
+            trace_id=trace_id,
+            retrieval_scores=retrieval_scores,
+            rank_scores=rank_scores,
         )
 
         # 写入缓存（24h）
@@ -188,6 +209,77 @@ class RAGMatcher:
             print(f"[rag_matcher] cache write failed: {e}")
 
         return result
+
+    async def _index_match_context(
+        self,
+        job_id: str,
+        resume_id: Optional[str],
+        job_text: str,
+        resume_text: str,
+        parsed_resume: Optional[Dict[str, Any]],
+        company_id: str,
+    ) -> None:
+        if resume_text and resume_text.strip():
+            metadata = {
+                "company_id": company_id,
+                "candidate_name": (parsed_resume or {}).get("candidate_name", "") if isinstance(parsed_resume, dict) else "",
+            }
+            await self.index_resume(resume_id or f"inline-{job_id}", resume_text, metadata)
+        if job_text and job_text.strip():
+            await self.index_job(job_id, job_text, {"company_id": company_id})
+
+    async def _search_match_evidence(
+        self,
+        job_text: str,
+        resume_text: str,
+        parsed_resume: Optional[Dict[str, Any]],
+        company_id: str,
+    ):
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagSearchRequest
+
+        resume_brief = self._build_resume_brief(parsed_resume, resume_text)
+        query = "\n".join(part for part in [job_text[:700], resume_brief[:700]] if part)
+        if not query.strip():
+            query = "候选人与岗位匹配证据"
+        return await rag_pipeline.search(
+            RagSearchRequest(
+                query=query,
+                companyId=company_id,
+                sourceTypes=["job", "resume", "knowledge"],
+                collection=self.collection_name,
+                topK=6,
+            )
+        )
+
+    def _skill_gap(
+        self,
+        job_keywords: set,
+        resume_keywords: set,
+        parsed_resume: Optional[Dict[str, Any]],
+    ) -> tuple[List[str], List[str]]:
+        required = {str(keyword).lower() for keyword in job_keywords if len(str(keyword)) >= 2}
+        resume_terms = {str(keyword).lower() for keyword in resume_keywords if len(str(keyword)) >= 2}
+        if parsed_resume and isinstance(parsed_resume, dict):
+            resume_terms.update(str(skill).lower() for skill in parsed_resume.get("skills") or [])
+        matched = sorted(required & resume_terms)
+        missing = sorted(required - resume_terms)
+        return matched[:20], missing[:20]
+
+    def _risk_texts(self, risk_points: List[Dict[str, Any]], missing_skills: List[str]) -> List[str]:
+        risks = []
+        for risk in risk_points:
+            if not isinstance(risk, dict):
+                continue
+            text = risk.get("详情") or risk.get("details") or risk.get("description")
+            skill = risk.get("技能") or risk.get("skill")
+            if text and skill:
+                risks.append(f"{skill}: {text}")
+            elif text:
+                risks.append(str(text))
+        if not risks and missing_skills:
+            risks = [f"缺少岗位关键词或技能: {skill}" for skill in missing_skills[:5]]
+        return risks
 
     def _build_resume_brief(self, parsed_resume: Optional[Dict[str, Any]],
                             resume_text: str) -> str:

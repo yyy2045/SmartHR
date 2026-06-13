@@ -11,6 +11,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -98,7 +99,11 @@ public class ResumeAIService {
                 MatchResultDTO result = new MatchResultDTO();
                 result.setResumeId(resumeId);
                 result.setJobId(jobId);
-                result.setMatchScore(root.has("match_score") ? root.get("match_score").asDouble() : 0.0);
+                if (root.has("matchScore")) {
+                    result.setMatchScore(root.get("matchScore").asDouble());
+                } else {
+                    result.setMatchScore(root.has("match_score") ? root.get("match_score").asDouble() : 0.0);
+                }
                 result.setSummary(root.has("summary") ? root.get("summary").asText() : "");
                 if (root.has("matching_points") && root.get("matching_points").isArray()) {
                     result.setMatchingPoints(objectMapper.convertValue(
@@ -110,6 +115,45 @@ public class ResumeAIService {
                     result.setRiskPoints(objectMapper.convertValue(
                         root.get("risk_points"),
                         new com.fasterxml.jackson.core.type.TypeReference<java.util.List<java.util.Map<String, Object>>>() {}
+                    ));
+                }
+                if (root.has("matchedSkills") && root.get("matchedSkills").isArray()) {
+                    result.setMatchedSkills(objectMapper.convertValue(
+                        root.get("matchedSkills"),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}
+                    ));
+                }
+                if (root.has("missingSkills") && root.get("missingSkills").isArray()) {
+                    result.setMissingSkills(objectMapper.convertValue(
+                        root.get("missingSkills"),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}
+                    ));
+                }
+                if (root.has("risks") && root.get("risks").isArray()) {
+                    result.setRisks(objectMapper.convertValue(
+                        root.get("risks"),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<String>>() {}
+                    ));
+                }
+                if (root.has("evidence") && root.get("evidence").isArray()) {
+                    result.setEvidence(objectMapper.convertValue(
+                        root.get("evidence"),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
+                    ));
+                }
+                if (root.has("traceId")) {
+                    result.setTraceId(root.get("traceId").asText());
+                }
+                if (root.has("retrievalScores") && root.get("retrievalScores").isObject()) {
+                    result.setRetrievalScores(objectMapper.convertValue(
+                        root.get("retrievalScores"),
+                        new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}
+                    ));
+                }
+                if (root.has("rankScores") && root.get("rankScores").isArray()) {
+                    result.setRankScores(objectMapper.convertValue(
+                        root.get("rankScores"),
+                        new com.fasterxml.jackson.core.type.TypeReference<List<Map<String, Object>>>() {}
                     ));
                 }
                 return result;
