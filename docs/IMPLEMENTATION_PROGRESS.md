@@ -47,6 +47,12 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
   - [x] Persist Java-triggered RAG evaluation runs in MySQL.
   - [x] Add compact RAG evaluation block to the System Config page.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm run build`.
+- [x] Phase 4: Make local Docker build runnable.
+  - [x] Add China-friendly apt and PyPI mirror defaults to the Python Dockerfile.
+  - [x] Add Python build tools for `chroma-hnswlib` on Python 3.12.
+  - [x] Pin `datasets`, `fsspec`, and `numpy` to versions compatible with Ragas and Chroma.
+  - [x] Local Docker validation passed: all six compose services are running and healthy.
+  - [x] Frontend `http://localhost`, Java `http://localhost:8080/api/health`, Python `http://localhost:8001/health`, and Nginx `/api/health` checks passed.
 
 ## Phase 1 Tasks
 
@@ -62,3 +68,9 @@ knowledge base, jobs, resumes, interviews, reports, RAG evaluation, optional MCP
 - Java exposes `POST /api/config/rag-evaluation/run` and `GET /api/config/rag-evaluation`; successful runs are saved to `rag_evaluation_runs`.
 - Internal Agent skills are exposed under `/api/rag/skills` and `/api/rag/skills/call`.
 - MCP is optional through `MCP_ENABLED`, `MCP_GATEWAY_URL`, and `MCP_TIMEOUT_SECONDS`; disabled or failed MCP calls fall back to internal tools.
+
+## Phase 4 Notes
+
+- Local Docker uses the ignored `docker-compose.yml`; the current local copy maps Docker MySQL to host port `3307` because the machine's native MySQL service still owns `3306`.
+- The Docker MySQL/Redis/Chroma volumes were reset during validation so the database could be initialized with the current local `.env` credentials.
+- Do not print expanded `docker compose config` output because it includes `.env` secrets.
