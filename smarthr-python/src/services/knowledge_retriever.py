@@ -3,8 +3,6 @@
 """
 
 from typing import List, Dict, Any, Optional
-from langchain_openai import OpenAIEmbeddings
-from src.config import settings
 from src.services.vector_store import vector_store_service
 
 
@@ -12,10 +10,6 @@ class KnowledgeRetriever:
     """基于企业知识库的 RAG 检索"""
 
     def __init__(self):
-        self.embeddings = OpenAIEmbeddings(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url
-        )
         self.collection_name = "knowledge_base"
 
     async def retrieve(self, query: str, top_k: int = 5, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
@@ -23,42 +17,50 @@ class KnowledgeRetriever:
         在知识库中进行语义搜索
         返回 {content, metadata, score} 字典列表
         """
-        # 获取查询嵌入向量
-        query_embedding = await self.embeddings.aembed_query(query)
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagSearchRequest
 
-        # 搜索向量存储
-        results = vector_store_service.search(
-            collection_name=self.collection_name,
-            query_embedding=query_embedding,
-            top_k=top_k,
-            filters=filters
+        response = await rag_pipeline.search(
+            RagSearchRequest(
+                query=query,
+                companyId=str(filters.get("company_id")) if filters and filters.get("company_id") else None,
+                collection=self.collection_name,
+                topK=top_k,
+            )
         )
 
-        return results
+        return [
+            {
+                "id": source.chunkId,
+                "document": source.content,
+                "distance": max(0.0, 1.0 - source.score),
+                "metadata": source.metadata,
+            }
+            for source in response.sources
+        ]
 
     async def add_knowledge(self, company_id: str, text: str, metadata: Dict[str, Any]) -> str:
         """
         向向量存储添加知识条目
         返回 chunk ID
         """
-        # 获取嵌入向量
-        embedding = await self.embeddings.aembed_query(text)
-
         # 生成 ID
         import uuid
         chunk_id = str(uuid.uuid4())
 
-        # 添加到向量存储
-        vector_store_service.add(
-            collection_name=self.collection_name,
-            embeddings=[embedding],
-            documents=[text],
-            ids=[chunk_id],
-            metadatas=[{
-                **metadata,
-                "company_id": company_id,
-                "type": "knowledge_entry"
-            }]
+        from src.services.rag.pipeline import rag_pipeline
+        from src.services.rag.schemas import RagIndexRequest
+
+        await rag_pipeline.index(
+            RagIndexRequest(
+                companyId=company_id,
+                sourceType="knowledge_entry",
+                sourceId=chunk_id,
+                title=str(metadata.get("title") or metadata.get("filename") or ""),
+                chunks=[text],
+                collection=self.collection_name,
+                metadata={**metadata, "company_id": company_id, "type": "knowledge_entry"},
+            )
         )
 
         return chunk_id
@@ -119,7 +121,8 @@ class KnowledgeRetriever:
         """更新知识条目"""
         try:
             # 重新嵌入并更新
-            embedding = await self.embeddings.aembed_query(new_text)
+            from src.services.rag.embedding_service import embedding_service
+            embedding = await embedding_service.embed_query(new_text)
             vector_store_service.update(
                 collection_name=self.collection_name,
                 ids=[chunk_id],
