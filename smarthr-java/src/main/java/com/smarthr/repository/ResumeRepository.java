@@ -15,6 +15,7 @@ public interface ResumeRepository extends JpaRepository<Resume, Long> {
     Page<Resume> findByJobId(Long jobId, Pageable pageable);
     Page<Resume> findByUserId(Long userId, Pageable pageable);
     Page<Resume> findByCompanyId(Long companyId, Pageable pageable);
+    List<Resume> findAllByCompanyId(Long companyId);
     List<Resume> findByCreatedAtAfter(LocalDateTime after);
     long countByCreatedAtAfter(LocalDateTime after);
 }

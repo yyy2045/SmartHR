@@ -21,6 +21,7 @@ class ResumeMatchRequest(BaseModel):
     job_id: str
     resume_text: str
     job_text: Optional[str] = ""
+    job_skills: Optional[List[str]] = None
     parsed_resume: Optional[Dict[str, Any]] = None
     company_id: Optional[str] = None
 
@@ -109,6 +110,7 @@ async def match_resume(request: ResumeMatchRequest):
             resume_text=request.resume_text,
             resume_id=request.resume_id,
             job_text=request.job_text or "",
+            job_skills=request.job_skills,
             parsed_resume=request.parsed_resume,
             company_id=company_id
         )
@@ -117,9 +119,19 @@ async def match_resume(request: ResumeMatchRequest):
             "status": "matched",
             "resume_id": result.resume_id,
             "match_score": result.score,
+            "matchScore": result.score,
             "matching_points": result.matching_points,
+            "matchingPoints": result.matching_points,
             "risk_points": result.risk_points,
-            "summary": result.summary
+            "riskPoints": result.risk_points,
+            "summary": result.summary,
+            "matchedSkills": result.matched_skills,
+            "missingSkills": result.missing_skills,
+            "risks": result.risks,
+            "evidence": result.evidence,
+            "traceId": result.trace_id,
+            "retrievalScores": result.retrieval_scores,
+            "rankScores": result.rank_scores,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"简历匹配失败: {str(e)}")

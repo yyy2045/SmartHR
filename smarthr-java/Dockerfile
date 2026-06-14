@@ -22,6 +22,8 @@ RUN apk add --no-cache curl
 # Copy jar from builder
 COPY --from=builder /app/target/*.jar app.jar
 
+ENV JAVA_TOOL_OPTIONS="-Xms256m -Xmx768m -XX:+ExitOnOutOfMemoryError"
+
 # Expose port
 EXPOSE 8080
 
@@ -30,4 +32,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
 
 # Run
-ENTRYPOINT ["java", "-jar", "-Xms512m", "-Xmx1024m", "app.jar"]
+ENTRYPOINT ["java", "-jar", "app.jar"]

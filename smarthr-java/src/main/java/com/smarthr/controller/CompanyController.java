@@ -2,11 +2,15 @@ package com.smarthr.controller;
 
 import com.smarthr.dto.CompanyRequest;
 import com.smarthr.dto.UnifiedResponse;
+import com.smarthr.config.JwtAuthenticationFilter.CustomAuthDetails;
 import com.smarthr.entity.Company;
+import com.smarthr.exception.GlobalException;
 import com.smarthr.service.CompanyService;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -39,8 +43,9 @@ public class CompanyController {
     }
 
     @PutMapping("/{id}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("isAuthenticated()")
     public UnifiedResponse<Company> update(@PathVariable Long id, @RequestBody CompanyRequest request) {
+        assertCanUpdateCompany(id);
         Company company = new Company();
         company.setName(request.getName());
         company.setIndustry(request.getIndustry());
@@ -53,5 +58,23 @@ public class CompanyController {
     public UnifiedResponse<Void> delete(@PathVariable Long id) {
         companyService.delete(id);
         return UnifiedResponse.success("Company deleted successfully", null);
+    }
+
+    private void assertCanUpdateCompany(Long companyId) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        Object details = auth != null ? auth.getDetails() : null;
+        if (!(details instanceof CustomAuthDetails authDetails)) {
+            throw new GlobalException(403, "无权修改企业信息");
+        }
+
+        String role = authDetails.getRole();
+        if ("ADMIN".equalsIgnoreCase(role)) {
+            return;
+        }
+
+        Long userCompanyId = authDetails.getCompanyId();
+        if (userCompanyId == null || !userCompanyId.equals(companyId)) {
+            throw new GlobalException(403, "只能修改自己所属企业的信息");
+        }
     }
 }

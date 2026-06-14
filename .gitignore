@@ -48,6 +48,9 @@ smarthr-python/.env
 docker-compose.override.yml
 docker-compose.yml
 
+# Local model files
+models/
+
 # Database
 *.sql.gz
 *.dump

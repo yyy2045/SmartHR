@@ -22,3 +22,7 @@ export function getRagEvaluation() {
 export function runRagEvaluation(data = {}) {
   return api.post('/config/rag-evaluation/run', data)
 }
+
+export function rebuildRagIndex(data = {}) {
+  return api.post('/config/rag-index/rebuild', data)
+}

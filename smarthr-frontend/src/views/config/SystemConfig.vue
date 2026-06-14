@@ -63,11 +63,29 @@
           <template #header>
             <div class="card-header">
               <span>RAGas评测</span>
-              <el-button type="primary" size="small" @click="runEvaluation" :loading="evaluating">
-                运行评测
-              </el-button>
+              <div class="header-buttons">
+                <el-radio-group v-model="evaluationMode" size="small">
+                  <el-radio-button label="heuristic">快速</el-radio-button>
+                  <el-radio-button label="ragas">完整RAGas</el-radio-button>
+                </el-radio-group>
+                <el-button size="small" @click="rebuildIndex" :loading="rebuilding">
+                  重建索引
+                </el-button>
+                <el-button type="primary" size="small" @click="runEvaluation" :loading="evaluating">
+                  {{ evaluationButtonText }}
+                </el-button>
+              </div>
             </div>
           </template>
+
+          <el-alert
+            v-if="rebuildResult"
+            class="evaluation-notes"
+            :title="`索引重建完成：业务文档 ${rebuildResult.businessDocuments || 0} 条，知识库成功 ${rebuildResult.knowledgeIndexed || 0} 条，失败 ${rebuildResult.knowledgeFailed || 0} 条`"
+            type="success"
+            show-icon
+            :closable="false"
+          />
 
           <div class="evaluation-summary">
             <div class="summary-item">
@@ -128,6 +146,7 @@ import {
   checkDbStatus,
   getCompanyInfo,
   getRagEvaluation,
+  rebuildRagIndex,
   runRagEvaluation,
   saveCompanyInfo as saveCompanyApi
 } from '@/api/config'
@@ -137,6 +156,9 @@ const activeTab = ref('database')
 const saving = ref(false)
 const checking = ref(false)
 const evaluating = ref(false)
+const rebuilding = ref(false)
+const evaluationMode = ref('heuristic')
+const rebuildResult = ref(null)
 
 const companyInfo = reactive({
   id: null,
@@ -178,6 +200,10 @@ const metricItems = computed(() => {
 })
 
 const failedSamples = computed(() => ragEvaluation.value.failedSamples || [])
+
+const evaluationButtonText = computed(() => (
+  evaluationMode.value === 'ragas' ? '运行完整评测' : '运行快速评测'
+))
 
 const evaluationStatusType = computed(() => {
   if (ragEvaluation.value.status === 'passed') return 'success'
@@ -272,7 +298,8 @@ const runEvaluation = async () => {
     const payload = {
       companyId: companyInfo.id ? String(companyInfo.id) : undefined,
       threshold: ragEvaluation.value.threshold || 0.7,
-      topK: 5
+      topK: 5,
+      mode: evaluationMode.value
     }
     const res = await runRagEvaluation(payload)
     ragEvaluation.value = {
@@ -286,6 +313,21 @@ const runEvaluation = async () => {
     ElMessage.error('RAG评测失败: ' + (error.message || '未知错误'))
   } finally {
     evaluating.value = false
+  }
+}
+
+const rebuildIndex = async () => {
+  rebuilding.value = true
+  try {
+    const payload = {
+      companyId: companyInfo.id ? String(companyInfo.id) : undefined
+    }
+    rebuildResult.value = await rebuildRagIndex(payload)
+    ElMessage.success('RAG索引已重建')
+  } catch (error) {
+    ElMessage.error('RAG索引重建失败: ' + (error.message || '未知错误'))
+  } finally {
+    rebuilding.value = false
   }
 }
 
@@ -315,6 +357,12 @@ const saveCompanyInfo = saveCompanyInfoHandler
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.header-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .evaluation-summary {
@@ -393,6 +441,11 @@ const saveCompanyInfo = saveCompanyInfoHandler
   .evaluation-summary,
   .metric-grid {
     grid-template-columns: 1fr;
+  }
+
+  .header-buttons {
+    flex-wrap: wrap;
+    justify-content: flex-end;
   }
 }
 </style>

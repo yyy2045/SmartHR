@@ -23,6 +23,10 @@ public class InterviewReportDTO {
     private String summary;
     private List<String> strengths;
     private List<String> concerns;
+    private List<String> risks;
     private List<String> interviewHighlights;
     private List<Map<String, Object>> qaSummary;
+    private List<Map<String, Object>> evidence;
+    private List<Map<String, Object>> conclusionEvidence;
+    private List<Map<String, Object>> followUpBasis;
 }

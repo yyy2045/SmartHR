@@ -11,6 +11,7 @@ import json
 from src.agents.interview_graph import get_interview_graph
 from src.services.interview_state_manager import interview_state_manager
 from src.services.llm_service import llm_service
+from src.services.rag.evidence_service import rag_evidence_service
 
 router = APIRouter(prefix="/api/interview", tags=["面试"])
 
@@ -54,12 +55,71 @@ class ReportResponse(BaseModel):
     interviewHighlights: List[str]
 
 
+def _evidence_to_dicts(evidence_items: List[Any]) -> List[Dict[str, Any]]:
+    result = []
+    for item in evidence_items or []:
+        if hasattr(item, "model_dump"):
+            result.append(item.model_dump())
+        elif isinstance(item, dict):
+            result.append(item)
+    return result
+
+
+def _format_evidence_context(evidence: List[Dict[str, Any]], limit: int = 4) -> str:
+    lines = []
+    for idx, item in enumerate((evidence or [])[:limit], start=1):
+        source = item.get("title") or item.get("sourceId") or item.get("sourceType") or "来源"
+        text = item.get("highlight") or item.get("text") or ""
+        if text:
+            lines.append(f"[证据{idx}｜{source}] {text[:260]}")
+    return "\n".join(lines)
+
+
+async def _prepare_session_evidence(request: CreateSessionRequest) -> Dict[str, Any]:
+    company_id = request.company_id or "default"
+    job_text = request.job_description or ""
+    resume_text = request.resume_text or ""
+    result = {
+        "indexed": {"job": [], "resume": []},
+        "evidence": [],
+        "traceId": None,
+        "retrievalScores": {},
+        "rankScores": [],
+    }
+    try:
+        result["indexed"] = await rag_evidence_service.ensure_job_resume_index(
+            job_id=request.job_id,
+            resume_id=request.resume_id,
+            job_text=job_text,
+            resume_text=resume_text,
+            company_id=company_id,
+        )
+        search_response = await rag_evidence_service.search_evidence(
+            query=rag_evidence_service.build_match_query(
+                job_text=job_text,
+                resume_text=resume_text,
+            ),
+            company_id=company_id,
+            source_types=["job", "resume", "knowledge"],
+            top_k=6,
+        )
+        result["evidence"] = _evidence_to_dicts(search_response.evidence)
+        result["traceId"] = search_response.traceId
+        result["retrievalScores"] = search_response.retrievalScores
+        result["rankScores"] = search_response.rankScores
+    except Exception as e:
+        print(f"[interview] prepare evidence failed: {e}")
+    return result
+
+
 @router.post("/sessions", response_model=QuestionResponse)
 async def create_session(request: CreateSessionRequest):
     """
     创建新的面试会话并返回第一个问题
     """
     session_id = str(uuid.uuid4())
+    evidence_bundle = await _prepare_session_evidence(request)
+    session_evidence = evidence_bundle.get("evidence", [])
 
     # 初始化状态
     initial_state = {
@@ -74,7 +134,11 @@ async def create_session(request: CreateSessionRequest):
         "behavior_scores": {},
         "extracted_info": {
             "job_description": request.job_description or "",
-            "resume_text": request.resume_text or ""
+            "resume_text": request.resume_text or "",
+            "match_evidence": session_evidence,
+            "match_trace_id": evidence_bundle.get("traceId"),
+            "retrieval_scores": evidence_bundle.get("retrievalScores", {}),
+            "rank_scores": evidence_bundle.get("rankScores", {}),
         },
         "current_question": None,
         "questions_asked": 0,
@@ -94,9 +158,11 @@ async def create_session(request: CreateSessionRequest):
     first_question = None
     try:
         from src.services.llm_service import llm_service
+        evidence_context = _format_evidence_context(session_evidence)
         prompt = (
             f"请用中文为以下岗位生成一个面试的开场问题，要求友好、开放式，邀请候选人自我介绍。\n"
             f"岗位描述：{(request.job_description or '通用岗位')[:500]}\n"
+            f"可参考证据：\n{evidence_context}\n"
             f"只返回问题文本，不要任何其他内容。"
         )
         opening = await asyncio.wait_for(
@@ -110,14 +176,20 @@ async def create_session(request: CreateSessionRequest):
         first_question = {
             "question": (opening or "").strip() or "请先做一下自我介绍。",
             "question_type": "OPENING",
-            "expected_skills": []
+            "expected_skills": [],
+            "competency": "自我介绍与求职动机",
+            "basisEvidence": session_evidence,
+            "traceId": evidence_bundle.get("traceId"),
         }
     except Exception as e:
         print(f"[interview] LLM opening generation failed: {e}")
         first_question = {
             "question": "你好，很高兴和你交流。请先做一下自我介绍，谈谈你的背景和求职动机。",
             "question_type": "OPENING",
-            "expected_skills": []
+            "expected_skills": [],
+            "competency": "自我介绍与求职动机",
+            "basisEvidence": session_evidence,
+            "traceId": evidence_bundle.get("traceId"),
         }
 
     final_state = dict(initial_state)
@@ -127,7 +199,12 @@ async def create_session(request: CreateSessionRequest):
             session_id,
             role="interviewer",
             content=first_question.get("question", ""),
-            metadata={"question_type": first_question.get("question_type", "OPENING")}
+            metadata={
+                "question_type": first_question.get("question_type", "OPENING"),
+                "competency": first_question.get("competency", ""),
+                "basisEvidence": first_question.get("basisEvidence", []),
+                "traceId": first_question.get("traceId"),
+            }
         )
         final_state["messages"] = await interview_state_manager.get_history(session_id)
         await interview_state_manager.save_state(session_id, final_state)
@@ -207,6 +284,23 @@ async def send_message(session_id: str, request: SendMessageRequest):
     job_description = state.get("extracted_info", {}).get("job_description", "")
     previous_q = state.get("current_question") or {}
     previous_q_text = previous_q.get("question", "") if isinstance(previous_q, dict) else str(previous_q)
+    company_id = state.get("company_id") or "default"
+
+    try:
+        await rag_evidence_service.index_interview_turn(
+            session_id=session_id,
+            turn_id=str(questions_asked + 1),
+            question=previous_q_text,
+            answer=request.message,
+            company_id=str(company_id),
+            metadata={
+                "question_type": previous_q.get("question_type", "") if isinstance(previous_q, dict) else "",
+                "competency": previous_q.get("competency", "") if isinstance(previous_q, dict) else "",
+                "traceId": previous_q.get("traceId") if isinstance(previous_q, dict) else None,
+            },
+        )
+    except Exception as e:
+        print(f"[interview] index interview turn failed: {e}")
 
     # 评估候选人的回答并更新技能/行为评分
     if questions_asked >= 0 and request.message:
@@ -242,7 +336,10 @@ async def send_message(session_id: str, request: SendMessageRequest):
 
     # 通过 LLM 直接生成下一个问题（跳过 LangGraph 以稳定首响并避开节点链路异常）
     next_question_text = None
-    knowledge_context = ""
+    evidence_context = ""
+    basis_evidence: List[Dict[str, Any]] = []
+    evidence_trace_id = None
+    rank_scores: List[Dict[str, Any]] = []
     qtype = "OPEN"
     try:
         from src.services.llm_service import llm_service
@@ -256,22 +353,28 @@ async def send_message(session_id: str, request: SendMessageRequest):
             topic = "过往成就与成长经历"
             qtype = "EXPERIENCE"
 
-        # 检索知识库获取公司相关上下文
-        company_id = state.get("company_id")
-        if company_id:
-            try:
-                from src.services.knowledge_retriever import knowledge_retriever
-                kb_results = await knowledge_retriever.search_by_company(
-                    company_id=str(company_id),
-                    query=f"{topic} 岗位要求 公司文化",
-                    top_k=2
-                )
-                if kb_results:
-                    knowledge_context = "\n".join([
-                        r.get("document", "")[:300] for r in kb_results
-                    ])
-            except Exception as e:
-                print(f"[interview] knowledge retrieval failed: {e}")
+        try:
+            extracted_info = state.get("extracted_info", {})
+            search_response = await rag_evidence_service.search_evidence(
+                query=(
+                    f"{topic}\n岗位：{job_description[:600]}\n"
+                    f"上一题：{previous_q_text[:300]}\n"
+                    f"候选人回答：{(request.message or '')[:600]}"
+                ),
+                company_id=str(company_id),
+                source_types=["job", "resume", "knowledge", "interview"],
+                top_k=6,
+            )
+            basis_evidence = _evidence_to_dicts(search_response.evidence)
+            evidence_trace_id = search_response.traceId
+            rank_scores = search_response.rankScores
+            evidence_context = _format_evidence_context(basis_evidence)
+            extracted_info["last_question_evidence"] = basis_evidence
+            extracted_info["last_question_trace_id"] = evidence_trace_id
+            extracted_info["last_rank_scores"] = rank_scores
+            state["extracted_info"] = extracted_info
+        except Exception as e:
+            print(f"[interview] evidence retrieval failed: {e}")
 
         # 最近3轮对话历史（窗口记忆）
         history_context = ""
@@ -290,8 +393,8 @@ async def send_message(session_id: str, request: SendMessageRequest):
             f"你是面试官，请根据岗位描述和对话历史，提出一个新的{topic}相关的中文面试问题。\n\n"
             f"岗位描述：{(job_description or '通用岗位')[:400]}\n"
         )
-        if knowledge_context:
-            prompt += f"公司知识库相关信息：{knowledge_context}\n"
+        if evidence_context:
+            prompt += f"可引用证据：\n{evidence_context}\n"
         if history_context:
             prompt += f"最近对话历史：\n{history_context}\n\n"
         prompt += (
@@ -318,7 +421,15 @@ async def send_message(session_id: str, request: SendMessageRequest):
     next_question = {
         "question": next_question_text.strip(),
         "question_type": qtype if next_question_text else "OPEN",
-        "expected_skills": []
+        "expected_skills": [],
+        "competency": {
+            "TECHNICAL": "技术能力",
+            "BEHAVIORAL": "协作与问题解决",
+            "EXPERIENCE": "项目经验与成长",
+        }.get(qtype, "综合能力"),
+        "basisEvidence": basis_evidence,
+        "traceId": evidence_trace_id,
+        "rankScores": rank_scores,
     }
 
     state["current_question"] = next_question
@@ -330,7 +441,12 @@ async def send_message(session_id: str, request: SendMessageRequest):
             session_id,
             role="interviewer",
             content=next_question.get("question", ""),
-            metadata={"question_type": next_question.get("question_type", "OPEN")}
+            metadata={
+                "question_type": next_question.get("question_type", "OPEN"),
+                "competency": next_question.get("competency", ""),
+                "basisEvidence": next_question.get("basisEvidence", []),
+                "traceId": next_question.get("traceId"),
+            }
         )
         state["messages"] = await interview_state_manager.get_history(session_id)
         await interview_state_manager.save_state(session_id, state)
@@ -393,7 +509,11 @@ async def end_session(session_id: str):
             "strengths": report_data.get("strengths", []),
             "concerns": report_data.get("concerns", []),
             "interviewHighlights": report_data.get("interview_highlights", []),
-            "qaSummary": report_data.get("qaSummary", [])
+            "qaSummary": report_data.get("qaSummary", []),
+            "risks": report_data.get("risks", []),
+            "evidence": report_data.get("evidence", []),
+            "conclusionEvidence": report_data.get("conclusionEvidence", []),
+            "followUpBasis": report_data.get("followUpBasis", [])
         }
     }
 
@@ -430,7 +550,11 @@ async def get_report(session_id: str):
         "strengths": report.get("strengths", []),
         "concerns": report.get("concerns", []),
         "interviewHighlights": report.get("interview_highlights", []),
-        "qaSummary": report.get("qaSummary", [])
+        "qaSummary": report.get("qaSummary", []),
+        "risks": report.get("risks", []),
+        "evidence": report.get("evidence", []),
+        "conclusionEvidence": report.get("conclusionEvidence", []),
+        "followUpBasis": report.get("followUpBasis", [])
     }
 
 

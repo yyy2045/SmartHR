@@ -1,0 +1,32 @@
+[
+  {
+    "question": "AI 应用开发工程师面试中，如何评估候选人的 RAG 能力？",
+    "groundTruth": "评估 RAG 能力应检查候选人是否能说明文档解析、结构化切分、metadata 标注、embedding 入库、BM25 关键词索引、混合检索、轻量排序、evidence 输出、traceId 和无证据不生成结论。5 分回答还应能结合项目经验说明如何排查召回不准。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "招聘系统里如何设计和迭代 Prompt，让面试问题和报告更可靠？",
+    "groundTruth": "Prompt 调优应包含角色、任务、输入上下文、输出 JSON 结构、评分维度、证据引用要求和禁止事项。迭代方法包括收集失败案例、对比标准答案、固定输出 schema、降低温度、增加 few-shot 示例、记录 traceId 和 evidence，并用评测集持续验证。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "为什么 RAG 检索要融合语义相似度和关键词得分？",
+    "groundTruth": "语义相似度适合同义表达和上下文相关内容，关键词得分适合命中精确技能、产品名、证书、年限和框架名。混合检索先扩大候选集，再融合 embedding 相似度与 BM25 关键词得分，可以减少漏召回。轻量排序应结合 sourceType、metadata、向量分、关键词分和业务过滤，最后输出 evidence 和 retrievalScores。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "生成面试报告时，录用建议必须依据哪些证据？",
+    "groundTruth": "录用建议必须回溯到岗位要求、简历内容、知识库规范和面试问答记录。报告中的能力评分、风险点、追问依据和最终建议都应附带 evidence，包括 sourceType、sourceId、title、chunkId、score、text 和 highlight。证据不足时不能给出确定性录用建议。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "AI 面试系统在提问和评价时需要遵守哪些合规边界？",
+    "groundTruth": "面试问题必须围绕岗位能力、项目经验、技能掌握、协作方式和问题解决能力。不得询问或评价年龄、婚育、民族、宗教、健康隐私、家庭情况等与岗位无关的信息。评价必须基于岗位、简历、知识库和面试记录中的证据，不得凭空推断人格、忠诚度或稳定性。",
+    "sourceTypes": ["knowledge"]
+  },
+  {
+    "question": "请设计一个岗位到报告的 AI 招聘闭环系统，关键数据应如何流转？",
+    "groundTruth": "岗位录入后结构化保存职责和技能标签，知识库上传后解析切分并入库，简历上传后解析并索引，匹配阶段输出 matchScore、summary、matchedSkills、missingSkills、risks 和 evidence。面试阶段基于岗位、简历、匹配证据和知识库生成带依据的问题，保存问题、回答、评分依据和 evidence。报告阶段复用全部证据输出录用建议、能力评分、风险点和追问依据。",
+    "sourceTypes": ["knowledge"]
+  }
+]

@@ -54,7 +54,7 @@ class KnowledgeRetriever:
         await rag_pipeline.index(
             RagIndexRequest(
                 companyId=company_id,
-                sourceType="knowledge_entry",
+                sourceType="knowledge",
                 sourceId=chunk_id,
                 title=str(metadata.get("title") or metadata.get("filename") or ""),
                 chunks=[text],

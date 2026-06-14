@@ -219,7 +219,8 @@ public class ResumeController {
             }
 
             // 取出 JD 全文（标题+描述+要求+技能）一并传给 Python，避免 LLM 凭空生成
-            String jobText = jobRepository.findById(jobId).map(j -> {
+            Optional<com.smarthr.entity.Job> jobOptional = jobRepository.findById(jobId);
+            String jobText = jobOptional.map(j -> {
                 StringBuilder sb = new StringBuilder();
                 if (j.getTitle() != null) sb.append("岗位：").append(j.getTitle()).append("\n");
                 if (j.getDescription() != null) sb.append("描述：").append(j.getDescription()).append("\n");
@@ -227,11 +228,12 @@ public class ResumeController {
                 if (j.getSkills() != null) sb.append("技能：").append(j.getSkills()).append("\n");
                 return sb.toString();
             }).orElse("");
+            List<String> jobSkills = parseJobSkills(jobOptional.map(com.smarthr.entity.Job::getSkills).orElse(null));
 
             String parsedResumeJson = resume.getParsedData();
 
             Long companyId = getUserCompanyId();
-            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText, jobText, parsedResumeJson, companyId);
+            MatchResultDTO result = resumeAIService.matchResume(id, jobId, resumeText, jobText, parsedResumeJson, companyId, jobSkills);
 
             // Update resume with match score
             resume.setMatchScore(BigDecimal.valueOf(result.getMatchScore()));
@@ -271,5 +273,50 @@ public class ResumeController {
             return ((CustomAuthDetails) auth.getDetails()).getCompanyId();
         }
         return null;
+    }
+
+    private List<String> parseJobSkills(String skillsJson) {
+        if (skillsJson == null || skillsJson.isBlank()) {
+            return Collections.emptyList();
+        }
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = objectMapper.readTree(skillsJson);
+            if (root.isArray()) {
+                List<String> skills = new ArrayList<>();
+                for (com.fasterxml.jackson.databind.JsonNode item : root) {
+                    if (item.isTextual()) {
+                        skills.add(item.asText());
+                    } else if (item.isObject()) {
+                        String value = firstText(item, "name", "skill", "label", "value");
+                        if (value != null) {
+                            skills.add(value);
+                        }
+                    }
+                }
+                return skills.stream().map(String::trim).filter(item -> !item.isEmpty()).distinct().toList();
+            }
+            if (root.isTextual()) {
+                return splitJobSkills(root.asText());
+            }
+        } catch (Exception ignored) {
+        }
+        return splitJobSkills(skillsJson);
+    }
+
+    private String firstText(com.fasterxml.jackson.databind.JsonNode node, String... fields) {
+        for (String field : fields) {
+            if (node.hasNonNull(field) && node.get(field).isTextual()) {
+                return node.get(field).asText();
+            }
+        }
+        return null;
+    }
+
+    private List<String> splitJobSkills(String raw) {
+        return Arrays.stream(raw.split("[,，、;；\\n]"))
+                .map(item -> item.replaceAll("^[\\s\\[\\]\"']+|[\\s\\[\\]\"']+$", ""))
+                .filter(item -> !item.isEmpty())
+                .distinct()
+                .toList();
     }
 }

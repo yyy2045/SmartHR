@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from src.services.rag.bm25_store import bm25_store
 from src.services.rag.embedding_service import embedding_service
-from src.services.rag.schemas import RagIndexRequest, RagIndexResponse, RagSearchRequest, RagSearchResponse, RagSource
+from src.services.rag.schemas import RagEvidence, RagIndexRequest, RagIndexResponse, RagSearchRequest, RagSearchResponse, RagSource
 from src.services.vector_store import vector_store_service
 
 
@@ -34,7 +34,13 @@ class RagPipeline:
         ]
         embeddings = await embedding_service.embed_documents(cleaned_chunks)
 
-        # Chroma add is not idempotent; delete first so reindex works.
+        # Chroma add is not idempotent; delete old source chunks first so reindex works
+        # even when the new chunk count is smaller than the previous one.
+        vector_store_service.delete_where(
+            request.collection,
+            {"$and": [{"source_type": request.sourceType}, {"source_id": str(request.sourceId)}]},
+        )
+        bm25_store.delete_by_source(request.collection, request.sourceType, request.sourceId)
         vector_store_service.delete(request.collection, chunk_ids)
         vector_store_service.add(
             collection_name=request.collection,
@@ -55,8 +61,9 @@ class RagPipeline:
     async def search(self, request: RagSearchRequest) -> RagSearchResponse:
         trace_id = str(uuid.uuid4())
         started = time.time()
+        normalized_query = self._normalize_query(request.query)
         filters = self._build_filters(request)
-        query_embedding = await embedding_service.embed_query(request.query)
+        query_embedding = await embedding_service.embed_query(normalized_query)
         vector_results = vector_store_service.search(
             collection_name=request.collection,
             query_embedding=query_embedding,
@@ -65,25 +72,69 @@ class RagPipeline:
         )
         keyword_results = bm25_store.search(
             collection=request.collection,
-            query=request.query,
+            query=normalized_query,
             top_k=max(request.topK * 3, request.topK),
             filters=filters,
         )
 
         merged = self._merge_results(vector_results, keyword_results, request.sourceTypes)
         sources = merged[:request.topK]
+        retrieval_scores = {
+            "vectorCandidates": len(vector_results),
+            "keywordCandidates": len(keyword_results),
+            "returned": len(sources),
+            "latencyMs": round((time.time() - started) * 1000, 2),
+            "collection": request.collection,
+            "query": normalized_query,
+        }
+        rank_scores = [
+            {
+                "chunkId": source.chunkId,
+                "score": source.score,
+                "vectorScore": source.vectorScore,
+                "keywordScore": source.keywordScore,
+            }
+            for source in sources
+        ]
         return RagSearchResponse(
-            query=request.query,
+            query=normalized_query,
             sources=sources,
+            evidence=[self._to_evidence(source, normalized_query) for source in sources],
             traceId=trace_id,
-            retrievalMetrics={
-                "vectorCandidates": len(vector_results),
-                "keywordCandidates": len(keyword_results),
-                "returned": len(sources),
-                "latencyMs": round((time.time() - started) * 1000, 2),
-                "collection": request.collection,
-            },
+            retrievalScores=retrieval_scores,
+            rankScores=rank_scores,
+            retrievalMetrics=retrieval_scores,
         )
+
+    def _normalize_query(self, query: str) -> str:
+        return " ".join((query or "").strip().split())
+
+    def _to_evidence(self, source: RagSource, query: str) -> RagEvidence:
+        return RagEvidence(
+            sourceType=source.sourceType,
+            sourceId=source.sourceId,
+            title=source.title,
+            chunkId=source.chunkId,
+            score=source.score,
+            text=source.content,
+            highlight=self._highlight(source.content, query),
+            metadata=source.metadata,
+        )
+
+    def _highlight(self, text: str, query: str) -> str:
+        if not text:
+            return ""
+        tokens = [token for token in query.split() if len(token) >= 2]
+        if not tokens:
+            return text[:180]
+        lower_text = text.lower()
+        for token in tokens:
+            idx = lower_text.find(token.lower())
+            if idx >= 0:
+                start = max(0, idx - 60)
+                end = min(len(text), idx + len(token) + 120)
+                return text[start:end]
+        return text[:180]
 
     def _build_metadata(self, request: RagIndexRequest, chunk_id: str, idx: int) -> Dict[str, Any]:
         metadata = {
@@ -128,7 +179,8 @@ class RagPipeline:
             if not chunk_id:
                 continue
             metadata = item.get("metadata") or {}
-            if source_types and metadata.get("sourceType") not in source_types:
+            source_type = metadata.get("sourceType") or metadata.get("source_type")
+            if source_types and source_type not in source_types:
                 continue
             distance = item.get("distance")
             vector_score = max(0.0, 1.0 - float(distance)) if distance is not None else 0.0
@@ -145,7 +197,8 @@ class RagPipeline:
             if not chunk_id:
                 continue
             metadata = item.get("metadata") or {}
-            if source_types and metadata.get("sourceType") not in source_types:
+            source_type = metadata.get("sourceType") or metadata.get("source_type")
+            if source_types and source_type not in source_types:
                 continue
             normalized_keyword = (item.get("keywordScore", 0.0) / max_keyword) if max_keyword > 0 else 0.0
             current = by_id.setdefault(chunk_id, {
@@ -169,6 +222,8 @@ class RagPipeline:
                 chunkId=str(metadata.get("chunkId") or metadata.get("chunk_id") or item.get("id")),
                 title=str(metadata.get("title") or metadata.get("filename") or ""),
                 content=item.get("document", ""),
+                text=item.get("document", ""),
+                highlight=self._highlight(item.get("document", ""), " ".join(source_types)),
                 score=round(score, 4),
                 vectorScore=round(vector_score, 4),
                 keywordScore=round(keyword_score, 4),

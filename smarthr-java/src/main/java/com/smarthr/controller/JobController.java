@@ -38,10 +38,12 @@ public class JobController {
         job.setTitle(request.getTitle());
         job.setDescription(request.getDescription());
         job.setRequirements(request.getRequirements());
+        job.setDepartment(request.getDepartment());
         job.setCompanyId(getUserCompanyId());
         job.setSkills(request.getSkills());
         job.setExperienceYears(request.getExperienceYears());
         job.setEducationLevel(request.getEducationLevel());
+        job.setStatus(request.getStatus());
         return UnifiedResponse.success(jobService.create(job));
     }
 
@@ -76,6 +78,7 @@ public class JobController {
         job.setTitle(request.getTitle());
         job.setDescription(request.getDescription());
         job.setRequirements(request.getRequirements());
+        job.setDepartment(request.getDepartment());
         job.setSkills(request.getSkills());
         job.setExperienceYears(request.getExperienceYears());
         job.setEducationLevel(request.getEducationLevel());

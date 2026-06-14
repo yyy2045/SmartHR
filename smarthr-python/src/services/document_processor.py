@@ -5,6 +5,8 @@
 import io
 from typing import List, Dict, Any, Optional
 
+from src.services.rag.chunker import semantic_chunk_text
+
 
 class DocumentProcessor:
     """处理文档：提取文本、分块、向量化到知识库"""
@@ -46,7 +48,7 @@ class DocumentProcessor:
         return chunk_ids
 
     def extract_text_from_file(self, file_path: str) -> str:
-        """从 PDF 或 Word 文件提取文本"""
+        """从 PDF、Word 或 TXT 文件提取文本"""
         import os
 
         ext = os.path.splitext(file_path)[1].lower()
@@ -55,6 +57,8 @@ class DocumentProcessor:
             return self._extract_pdf(file_path)
         elif ext in ['.docx', '.doc']:
             return self._extract_word(file_path)
+        elif ext in ['.txt', '.md']:
+            return self._extract_text_file(file_path)
         else:
             raise ValueError(f"不支持的文件类型: {ext}")
 
@@ -66,6 +70,8 @@ class DocumentProcessor:
             return self._extract_pdf_from_bytes(content)
         elif ext in ['docx', 'doc']:
             return self._extract_word_from_bytes(content)
+        elif ext in ['txt', 'md']:
+            return self._decode_text_bytes(content)
         else:
             raise ValueError(f"不支持的文件类型: {ext}")
 
@@ -111,39 +117,25 @@ class DocumentProcessor:
         except ImportError:
             raise ImportError("需要安装 python-docx 来处理 Word 文档")
 
+    def _extract_text_file(self, file_path: str) -> str:
+        """从纯文本文件提取文本。"""
+        with open(file_path, "rb") as file:
+            return self._decode_text_bytes(file.read())
+
+    def _decode_text_bytes(self, content: bytes) -> str:
+        """兼容 UTF-8 和常见中文 Windows 编码。"""
+        for encoding in ["utf-8-sig", "utf-8", "gb18030"]:
+            try:
+                return content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return content.decode("utf-8", errors="ignore")
+
     def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
-        """
-        将文本拆分为有重叠的块
-        使用简单的基于字符的分块并带重叠
-        """
+        """按段落、标题和句子优先切分，超长文本再固定长度兜底。"""
         chunk_size = chunk_size or self.chunk_size
         overlap = overlap or self.chunk_overlap
-
-        if len(text) <= chunk_size:
-            return [text] if text.strip() else []
-
-        chunks = []
-        start = 0
-
-        while start < len(text):
-            end = start + chunk_size
-
-            # 尝试在句子边界处断开
-            if end < len(text):
-                # 查找句子结尾
-                for punct in ['.', '!', '?', '\n']:
-                    last_punct = text.rfind(punct, start + chunk_size // 2, end)
-                    if last_punct > start + chunk_size // 2:
-                        end = last_punct + 1
-                        break
-
-            chunk = text[start:end].strip()
-            if chunk and chunk.strip():  # 过滤空白字符 chunk
-                chunks.append(chunk)
-
-            start = end - overlap
-
-        return chunks
+        return semantic_chunk_text(text, chunk_size=chunk_size, overlap=overlap)
 
     async def vectorize_chunks(self, chunks: List[str], metadata: Dict[str, Any]) -> List[str]:
         """将文本块向量化并存储到 Chroma"""
@@ -155,7 +147,7 @@ class DocumentProcessor:
         response = await rag_pipeline.index(
             RagIndexRequest(
                 companyId=str(metadata.get("company_id") or metadata.get("companyId") or "default"),
-                sourceType=str(metadata.get("source_type") or metadata.get("doc_type") or "knowledge"),
+                sourceType=str(metadata.get("source_type") or "knowledge"),
                 sourceId=str(metadata.get("doc_id") or metadata.get("source_id") or "doc"),
                 title=str(metadata.get("title") or metadata.get("filename") or ""),
                 chunks=chunks,

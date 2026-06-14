@@ -10,9 +10,22 @@ class RagSource(BaseModel):
     chunkId: str
     title: str = ""
     content: str
+    text: str = ""
+    highlight: str = ""
     score: float = 0.0
     vectorScore: Optional[float] = None
     keywordScore: Optional[float] = None
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class RagEvidence(BaseModel):
+    sourceType: str
+    sourceId: str
+    title: str = ""
+    chunkId: str
+    score: float = 0.0
+    text: str
+    highlight: str = ""
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
@@ -44,6 +57,9 @@ class RagSearchRequest(BaseModel):
 class RagSearchResponse(BaseModel):
     query: str
     sources: List[RagSource]
+    evidence: List[RagEvidence] = Field(default_factory=list)
+    retrievalScores: Dict[str, Any] = Field(default_factory=dict)
+    rankScores: List[Dict[str, Any]] = Field(default_factory=list)
     retrievalMetrics: Dict[str, Any] = Field(default_factory=dict)
     traceId: Optional[str] = None
 
@@ -62,6 +78,7 @@ class RagEvaluationRequest(BaseModel):
     collection: str = "knowledge_base"
     topK: int = 5
     threshold: Optional[float] = None
+    mode: Optional[str] = None
     samples: List[RagEvaluationSample] = Field(default_factory=list)
 
 
