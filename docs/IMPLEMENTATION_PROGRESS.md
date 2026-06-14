@@ -92,6 +92,7 @@
   - [x] Added manual full `ragas` mode from the System Config page.
   - [x] Added explicit OpenAI-compatible evaluator LLM configuration for RAGas: `RAGAS_LLM_PROVIDER`, `RAGAS_LLM_API_KEY`, `RAGAS_LLM_BASE_URL`, `RAGAS_LLM_MODEL`, `RAGAS_TIMEOUT_SECONDS`.
   - [x] Wrapped local BGE as LangChain embeddings for RAGas metrics and executed RAGas in a worker thread to avoid FastAPI `uvloop` conflicts.
+  - [x] Allowed any authenticated user to update their own company information while keeping company creation/deletion admin-only.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn.cmd -q -DskipTests package`, `npm.cmd run build`.
   - [x] Docker validation passed: rebuilt and restarted Java/Python/frontend where needed; Java/Python healthy; frontend `/api/health` returned 200; login probe reached Java; Python `/health/dependencies` reported `local_bge`, loaded, `actualDimensions=768`, mock disabled.
   - [x] Match probes passed with non-whitelisted skill `Kubernetes`, no missing skills for matching resumes, and evidence limited to the current job/resume.
@@ -135,4 +136,5 @@
   - Fast mode sends `mode=heuristic` and does not call an external LLM.
   - Full mode sends `mode=ragas`, calls the configured evaluator LLM, and should be treated as a slower manual check.
 - RAGas full mode uses the existing local BGE embedding provider for evaluator embeddings and an OpenAI-compatible chat model for evaluator LLM calls. With the current local environment it validated against `deepseek/deepseek-chat`.
+- Company settings can be edited by any authenticated user for their own `companyId`; admins can still update any company and remain the only role for create/delete.
 - Current untracked local-only paths remain excluded from commits: `.claude/`, `.playwright-mcp/`, `smarthr-java/uploads/`, `smarthr-python/uploads/`.
