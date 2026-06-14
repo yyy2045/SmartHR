@@ -97,6 +97,11 @@
   - [x] Docker validation passed: rebuilt and restarted Java/Python/frontend where needed; Java/Python healthy; frontend `/api/health` returned 200; login probe reached Java; Python `/health/dependencies` reported `local_bge`, loaded, `actualDimensions=768`, mock disabled.
   - [x] Match probes passed with non-whitelisted skill `Kubernetes`, no missing skills for matching resumes, and evidence limited to the current job/resume.
   - [x] RAG evaluation validation passed: Python `/api/rag/evaluations/run` returned `heuristic` in fast mode and `ragas` in full mode using `deepseek/deepseek-chat` on a one-sample probe.
+- [x] Phase 8: Demo knowledge-base and evaluation samples.
+  - [x] Added TXT/MD extraction support for uploaded knowledge documents.
+  - [x] Added demo upload files under `docs/demo-data/`: `ai_interview_question_bank.txt` and `hr_ai_interview_scoring_guide.txt`.
+  - [x] Replaced default RAG evaluation samples with knowledge-focused questions aligned to the demo question bank.
+  - [x] Upload the demo TXT files, rebuild the RAG index, then run fast or full RAG evaluation from System Config.
 
 ## Phase 1 Tasks
 
@@ -138,3 +143,9 @@
 - RAGas full mode uses the existing local BGE embedding provider for evaluator embeddings and an OpenAI-compatible chat model for evaluator LLM calls. With the current local environment it validated against `deepseek/deepseek-chat`.
 - Company settings can be edited by any authenticated user for their own `companyId`; admins can still update any company and remain the only role for create/delete.
 - Current untracked local-only paths remain excluded from commits: `.claude/`, `.playwright-mcp/`, `smarthr-java/uploads/`, `smarthr-python/uploads/`.
+
+## Demo Data Notes
+
+- Upload `docs/demo-data/ai_interview_question_bank.txt` and `docs/demo-data/hr_ai_interview_scoring_guide.txt` from the Knowledge Base page.
+- After uploading, run the manual RAG index rebuild from System Config before running RAG evaluation.
+- The default `evaluation_samples.json` now uses `sourceTypes: ["knowledge"]` so the samples can be tested with these two uploaded files without binding to changing document UUIDs.

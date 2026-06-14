@@ -48,7 +48,7 @@ class DocumentProcessor:
         return chunk_ids
 
     def extract_text_from_file(self, file_path: str) -> str:
-        """从 PDF 或 Word 文件提取文本"""
+        """从 PDF、Word 或 TXT 文件提取文本"""
         import os
 
         ext = os.path.splitext(file_path)[1].lower()
@@ -57,6 +57,8 @@ class DocumentProcessor:
             return self._extract_pdf(file_path)
         elif ext in ['.docx', '.doc']:
             return self._extract_word(file_path)
+        elif ext in ['.txt', '.md']:
+            return self._extract_text_file(file_path)
         else:
             raise ValueError(f"不支持的文件类型: {ext}")
 
@@ -68,6 +70,8 @@ class DocumentProcessor:
             return self._extract_pdf_from_bytes(content)
         elif ext in ['docx', 'doc']:
             return self._extract_word_from_bytes(content)
+        elif ext in ['txt', 'md']:
+            return self._decode_text_bytes(content)
         else:
             raise ValueError(f"不支持的文件类型: {ext}")
 
@@ -112,6 +116,20 @@ class DocumentProcessor:
             return "\n".join([para.text for para in doc.paragraphs])
         except ImportError:
             raise ImportError("需要安装 python-docx 来处理 Word 文档")
+
+    def _extract_text_file(self, file_path: str) -> str:
+        """从纯文本文件提取文本。"""
+        with open(file_path, "rb") as file:
+            return self._decode_text_bytes(file.read())
+
+    def _decode_text_bytes(self, content: bytes) -> str:
+        """兼容 UTF-8 和常见中文 Windows 编码。"""
+        for encoding in ["utf-8-sig", "utf-8", "gb18030"]:
+            try:
+                return content.decode(encoding)
+            except UnicodeDecodeError:
+                continue
+        return content.decode("utf-8", errors="ignore")
 
     def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
         """按段落、标题和句子优先切分，超长文本再固定长度兜底。"""
