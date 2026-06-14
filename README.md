@@ -1,205 +1,411 @@
-# SmartHR - 多智能体协作招聘平台
+# SmartHR - 证据化智能招聘平台
 
-## 项目简介
+SmartHR 是一个面向 HR 的智能招聘辅助系统，覆盖岗位、知识库、简历、匹配、面试、报告和 RAG 评测的闭环流程。
 
-SmartHR 是一款面向企业 HR 和面试官的智能招聘辅助系统，采用 Java + Python 双语言架构，结合多智能体协作、RAG 和向量数据库实现全流程智能化招聘。
+当前交付目标是单机 Docker Compose 演示部署：Java 负责业务 API，Python 负责 AI/RAG 能力，Vue 前端由 Nginx 托管，MySQL/Redis/Chroma 作为数据与检索基础设施。
 
-## 技术架构
+## 核心能力
 
-```
-[前端 Vue3/React]
-    |
-[Java Spring Boot 主业务层] —— [MySQL] (业务数据)
-    |                        —— [Redis] (会话记忆、上下文)
-    |
-[Python FastAPI AI服务层]   —— [Chroma 向量数据库] (语义匹配)
-    |                        —— [LangChain + LangGraph] (多智能体编排)
-    |
-[LLM 大模型 API (DeepSeek)]
-```
+- 岗位管理：结构化维护岗位职责、任职要求和技能标签。
+- 知识库：上传 PDF、Word、TXT、MD 文档，解析后进入统一 RAG 索引。
+- 简历管理：上传简历、解析文本、索引候选人信息。
+- 简历匹配：输出匹配分、匹配理由、技能命中、技能缺口、风险点和证据来源。
+- RAG 面试：基于岗位、简历、匹配证据和知识库生成带依据的问题。
+- 面试报告：输出录用建议、能力评分、风险点、追问依据和可回溯证据。
+- RAG 评测：支持本地启发式快速评测，以及可选的 RAGas + LLM 完整评测。
 
 ## 技术栈
 
-| 类别 | 技术 | 用途 |
-|------|------|------|
-| 后端主语言 | Java, Spring Boot 3.2 | 业务接口、鉴权、会话管理 |
-| 认证 | JWT | 无状态用户认证与授权 |
-| 缓存与记忆 | Redis | 存储多智能体对话历史、HR筛选上下文 |
-| 关系型数据库 | MySQL 8 | 存储用户、岗位、简历、报告等业务数据 |
-| AI 服务语言 | Python, FastAPI | 高性能异步 AI 推理接口 |
-| LLM 编排 | LangChain, LangGraph | RAG 流程、多智能体协作 |
-| 向量存储 | Chroma | 简历与岗位的语义匹配 |
-| 检索增强生成 | RAG | 结合知识库与向量检索 |
+| 模块 | 技术 |
+| --- | --- |
+| 前端 | Vue 3, Vite, Element Plus, Nginx |
+| Java 后端 | Spring Boot 3.2, Spring Security, JWT, MyBatis/JPA |
+| Python AI 服务 | FastAPI, LangChain, LangGraph, RAGas |
+| 数据库 | MySQL 8 |
+| 缓存 | Redis 7 |
+| 向量库 | Chroma 0.5 |
+| Embedding | 本地 `bge-base-zh-v1.5` |
+| 部署 | Docker Compose, Nginx, Certbot |
 
-## 项目结构
+## 架构
 
+```text
+浏览器
+  -> 宿主机 Nginx: HTTPS / 域名 / 反向代理
+  -> frontend 容器 Nginx: Vue 静态文件 / API 代理
+  -> java-backend:8080: 业务 API、鉴权、数据持久化
+  -> python-backend:8001: RAG、简历匹配、面试生成、评测
+  -> mysql / redis / chroma
 ```
+
+生产部署中只需要公网暴露 `80/443`。MySQL、Redis、Chroma、Java、Python 均通过 Docker 内部网络访问，不应直接暴露到公网。
+
+## 目录结构
+
+```text
 SmartHR/
-├── smarthr-java/              # Java Spring Boot 主项目
-│   ├── pom.xml
-│   └── src/main/
-│       ├── java/com/smarthr/
-│       │   ├── SmarthrApplication.java
-│       │   ├── config/         # 配置类 (JWT, Security, Redis)
-│       │   ├── controller/     # REST API (Auth, Company, Job, Health)
-│       │   ├── service/        # 业务逻辑
-│       │   ├── repository/     # 数据访问
-│       │   ├── entity/         # 实体类 (User, Company, Job, Resume, InterviewSession, Report)
-│       │   ├── dto/            # 数据传输对象
-│       │   └── exception/      # 异常处理
-│       └── resources/
-│           └── application.yml
-├── smarthr-python/            # Python FastAPI AI 服务
-│   ├── pyproject.toml
-│   └── src/
-│       ├── main.py             # FastAPI 入口
-│       ├── config.py           # 配置管理
-│       ├── api/                # API 路由 (health, resume, interview, knowledge)
-│       ├── services/           # LLM, VectorStore, Redis 服务
-│       └── agents/             # 智能体实现
-├── docker-compose.yml          # 容器编排 (MySQL, Redis, Chroma)
-├── init-scripts/
-│   └── schema.sql              # 数据库初始化脚本
-└── README.md
+  smarthr-frontend/       Vue 前端和前端容器 Nginx 配置
+  smarthr-java/           Spring Boot 业务后端
+  smarthr-python/         FastAPI AI/RAG 服务
+  init-scripts/           MySQL 初始化脚本
+  docs/demo-data/         可上传的演示知识库文件
+  docs/                   交付进度和项目文档
+  docker-compose.yml      本地开发/演示 Compose
 ```
 
-## 快速开始
+## 本地运行
 
-### 环境要求
+准备本地 BGE 模型目录：
 
-- JDK 17+
-- Maven 3.8+
-- Python 3.10+
-- Docker & Docker Compose
-- DeepSeek API Key
+```text
+models/bge-base-zh-v1.5
+```
 
-### 1. 启动基础设施服务
+复制并配置环境变量：
+
+```powershell
+Copy-Item .env.example .env
+```
+
+至少配置：
+
+```env
+MYSQL_ROOT_PASSWORD=your_secure_root_password
+MYSQL_USER=smarthr
+MYSQL_PASSWORD=your_secure_mysql_password
+JWT_SECRET=your_secure_jwt_secret_key_min_32_chars
+DEEPSEEK_API_KEY=your_deepseek_api_key
+
+EMBEDDING_PROVIDER=local_bge
+LOCAL_BGE_MODEL_PATH=/opt/smarthr/models/bge-base-zh-v1.5
+ALLOW_MOCK_EMBEDDING=false
+EMBEDDING_DIMENSIONS=768
+RAGAS_MODE=heuristic
+```
+
+构建并启动：
+
+```powershell
+docker compose build frontend java-backend python-backend
+docker compose up -d
+docker compose ps
+```
+
+健康检查：
+
+```powershell
+Invoke-RestMethod http://localhost/api/health
+Invoke-RestMethod http://localhost:8001/health/dependencies
+```
+
+Python 依赖健康检查应看到：
+
+```text
+provider=local_bge
+loaded=true
+mockAllowed=false
+actualDimensions=768
+```
+
+本地访问：
+
+```text
+http://localhost
+```
+
+## 镜像推送到阿里云 ACR
+
+本地构建完成后，给镜像打阿里云 ACR 标签并推送。下面以个人版 ACR 为例，实际地址以控制台为准：
+
+```powershell
+$REG="crpi-xxxx.cn-beijing.personal.cr.aliyuncs.com"
+$NS="your-namespace"
+$TAG="v1"
+
+docker login --username=你的阿里云镜像仓库用户名 $REG
+
+docker tag smarthr-frontend:latest $REG/$NS/smarthr-frontend:$TAG
+docker tag smarthr-java-backend:latest $REG/$NS/smarthr-java-backend:$TAG
+docker tag smarthr-python-backend:latest $REG/$NS/smarthr-python-backend:$TAG
+
+docker push $REG/$NS/smarthr-frontend:$TAG
+docker push $REG/$NS/smarthr-java-backend:$TAG
+docker push $REG/$NS/smarthr-python-backend:$TAG
+```
+
+如果服务器访问 Docker Hub 不稳定，建议把基础镜像也转推到 ACR：
+
+```powershell
+docker pull mysql:8
+docker pull redis:7-alpine
+docker pull chromadb/chroma:0.5.0
+
+docker tag mysql:8 $REG/$NS/mysql:8
+docker tag redis:7-alpine $REG/$NS/redis:7-alpine
+docker tag chromadb/chroma:0.5.0 $REG/$NS/chroma:0.5.0
+
+docker push $REG/$NS/mysql:8
+docker push $REG/$NS/redis:7-alpine
+docker push $REG/$NS/chroma:0.5.0
+```
+
+## 阿里云单机部署
+
+服务器准备目录：
 
 ```bash
-cd SmartHR
-docker-compose up -d
+mkdir -p /opt/smarthr/init-scripts
+mkdir -p /opt/smarthr/models
+cd /opt/smarthr
 ```
 
-验证服务状态：
-- MySQL: localhost:3306
-- Redis: localhost:6379
-- Chroma: localhost:8000
+上传初始化脚本和 BGE 模型：
 
-### 2. 配置文件
+```powershell
+scp .\init-scripts\schema.sql root@服务器IP:/opt/smarthr/init-scripts/schema.sql
+scp -r .\models\bge-base-zh-v1.5 root@服务器IP:/opt/smarthr/models/
+```
 
-敏感配置使用环境变量管理，已从仓库中忽略。使用前请复制模板并配置：
+服务器 `.env` 示例：
+
+```env
+MYSQL_ROOT_PASSWORD=换成强密码
+MYSQL_DATABASE=smarthr
+MYSQL_USER=smarthr
+MYSQL_PASSWORD=换成强密码
+
+JWT_SECRET=至少32位随机字符串
+JWT_EXPIRATION=86400000
+
+DEEPSEEK_API_KEY=你的DeepSeekKey
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-chat
+
+EMBEDDING_PROVIDER=local_bge
+LOCAL_BGE_MODEL_PATH=/opt/smarthr/models/bge-base-zh-v1.5
+ALLOW_MOCK_EMBEDDING=false
+EMBEDDING_DIMENSIONS=768
+
+RAGAS_MODE=heuristic
+RAGAS_THRESHOLD=0.70
+```
+
+服务器 `docker-compose.yml` 使用 ACR 镜像，建议前端只暴露到本机端口，再由宿主机 Nginx 提供 HTTPS：
+
+```yaml
+services:
+  mysql:
+    image: registry.example.com/namespace/mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: smarthr
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init-scripts:/docker-entrypoint-initdb.d:ro
+    networks:
+      - smarthr-network
+
+  redis:
+    image: registry.example.com/namespace/redis:7-alpine
+    volumes:
+      - redis_data:/data
+    networks:
+      - smarthr-network
+
+  chroma:
+    image: registry.example.com/namespace/chroma:0.5.0
+    platform: linux/amd64
+    volumes:
+      - chroma_data:/chroma/chroma
+    networks:
+      - smarthr-network
+
+  java-backend:
+    image: registry.example.com/namespace/smarthr-java-backend:v1
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/smarthr?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER}
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      AI_SERVICE_URL: http://python-backend:8001
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
+      JAVA_TOOL_OPTIONS: -Xms256m -Xmx768m
+    depends_on:
+      - mysql
+      - redis
+    networks:
+      - smarthr-network
+
+  python-backend:
+    image: registry.example.com/namespace/smarthr-python-backend:v1
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_NAME: smarthr
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CHROMA_HOST: chroma
+      CHROMA_PORT: 8000
+      JAVA_BACKEND_URL: http://java-backend:8080
+      ENVIRONMENT: production
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER}
+      LOCAL_BGE_MODEL_PATH: ${LOCAL_BGE_MODEL_PATH}
+      ALLOW_MOCK_EMBEDDING: ${ALLOW_MOCK_EMBEDDING}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL}
+      DEEPSEEK_MODEL: ${DEEPSEEK_MODEL}
+      RAGAS_MODE: ${RAGAS_MODE}
+      RAGAS_THRESHOLD: ${RAGAS_THRESHOLD}
+    volumes:
+      - /opt/smarthr/models/bge-base-zh-v1.5:/opt/smarthr/models/bge-base-zh-v1.5:ro
+    depends_on:
+      - mysql
+      - redis
+      - chroma
+    networks:
+      - smarthr-network
+
+  frontend:
+    image: registry.example.com/namespace/smarthr-frontend:v1
+    ports:
+      - "127.0.0.1:8088:80"
+    depends_on:
+      - java-backend
+      - python-backend
+    networks:
+      - smarthr-network
+
+volumes:
+  mysql_data:
+  redis_data:
+  chroma_data:
+
+networks:
+  smarthr-network:
+    driver: bridge
+```
+
+启动：
 
 ```bash
-# Java
-cp smarthr-java/src/main/resources/application.yml.example \
-   smarthr-java/src/main/resources/application.yml
-# 编辑 application.yml 填入真实密码
-
-# Python
-cp smarthr-python/.env.example smarthr-python/.env
-# 编辑 .env 填入 DeepSeek API Key
+docker login --username=你的阿里云镜像仓库用户名 registry.example.com
+docker compose pull
+docker compose up -d
+docker compose ps
 ```
 
-### 3. 启动 Java 后端
+## 域名和 HTTPS
+
+DNS 添加 A 记录到服务器公网 IP：
+
+```text
+smarthr.top      A    服务器公网IP
+www.smarthr.top  A    服务器公网IP
+```
+
+宿主机 Nginx 示例：
+
+```nginx
+server {
+    listen 80;
+    server_name smarthr.top www.smarthr.top;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    server_name smarthr.top www.smarthr.top;
+
+    ssl_certificate /etc/letsencrypt/live/smarthr.top/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/smarthr.top/privkey.pem;
+
+    client_max_body_size 20m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8088;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+证书申请：
 
 ```bash
-cd smarthr-java
-mvn spring-boot:run
+apt install -y nginx certbot python3-certbot-nginx
+certbot --nginx -d smarthr.top -d www.smarthr.top
+nginx -t
+systemctl reload nginx
 ```
 
-服务地址：http://localhost:8080
+## 演示数据
 
-### 4. 启动 Python AI 服务
+可上传的知识库样本在：
+
+```text
+docs/demo-data/ai_interview_question_bank.txt
+docs/demo-data/hr_ai_interview_scoring_guide.txt
+```
+
+上传后进入系统配置页，先执行 RAG 索引重建，再运行 RAG 评测。
+
+## 验收路径
+
+```text
+注册/登录
+创建岗位并填写技能标签
+上传知识库
+上传简历
+系统配置 -> 重建 RAG 索引
+执行简历匹配并查看证据
+从匹配结果进入面试
+生成带依据的问题
+完成面试
+查看证据化报告
+运行 RAG 评测
+```
+
+## 常用检查命令
 
 ```bash
-cd smarthr-python
-poetry install
-poetry run python src/main.py
+docker compose ps
+curl -I http://127.0.0.1
+curl -I https://smarthr.top
+docker compose exec python-backend python -c "import urllib.request; print(urllib.request.urlopen('http://localhost:8001/health/dependencies').read().decode())"
 ```
 
-服务地址：http://localhost:8001
+## RAG 评测说明
 
-## API 接口
+- 快速模式：`RAGAS_MODE=heuristic`，本地启发式评测，不调用外部 LLM。
+- 完整模式：系统配置页选择完整 RAGas，使用 OpenAI-compatible LLM 评测 faithfulness、answer relevancy、context precision 和 context recall。
+- 默认评测样本在 `smarthr-python/src/services/rag/evaluation_samples.json`。
 
-### 认证接口
+完整 RAGas 可选配置：
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/auth/register | 用户注册 |
-| POST | /api/auth/login | 用户登录 |
+```env
+RAGAS_LLM_PROVIDER=deepseek
+RAGAS_LLM_API_KEY=你的Key
+RAGAS_LLM_BASE_URL=https://api.deepseek.com
+RAGAS_LLM_MODEL=deepseek-chat
+RAGAS_TIMEOUT_SECONDS=120
+```
 
-### 企业管理
+## 安全注意
 
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/companies | 创建企业 |
-| GET | /api/companies | 获取企业列表 |
-| GET | /api/companies/{id} | 获取企业详情 |
-| PUT | /api/companies/{id} | 更新企业 |
-| DELETE | /api/companies/{id} | 删除企业 |
-
-### 岗位管理
-
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| POST | /api/jobs | 创建岗位 |
-| GET | /api/jobs | 获取岗位列表 |
-| GET | /api/jobs/{id} | 获取岗位详情 |
-| PUT | /api/jobs/{id} | 更新岗位 |
-| DELETE | /api/jobs/{id} | 删除岗位 |
-
-### 健康检查
-
-| 方法 | 路径 | 描述 |
-|------|------|------|
-| GET | /api/health | Java 后端健康检查 |
-| GET | /health | Python AI 服务健康检查 |
-
-## 核心功能
-
-### 1. 简历智能匹配与解析
-
-- PDF/Word 简历解析
-- 结构化数据提取
-- JD-简历语义匹配度计算
-
-### 2. 智能面试系统
-
-多智能体协作面试，包含：
-- **主面试官**：主导提问流程
-- **技能评估智能体**：评估技术深度
-- **行为分析智能体**：分析软素质
-- **报告生成智能体**：生成加权评分报告
-
-### 3. 上下文记忆
-
-- Redis 存储面试对话历史
-- 断点续面能力
-- HR 偏好学习
-
-### 4. 企业知识库
-
-- 文档上传与向量化
-- 面试中检索企业知识
-
-## 测试账号
-
-| 邮箱 | 密码 | 角色 |
-|------|------|------|
-| admin@smarthr.com | admin123 | ADMIN |
-| hr@smarthr.com | admin123 | HR |
-
-## 开发阶段
-
-- [x] 第0阶段：环境准备
-- [x] 第1阶段：后端基础架构
-- [ ] 第2阶段：简历匹配与解析
-- [ ] 第3阶段：智能面试多智能体系统
-- [ ] 第4阶段：上下文记忆与连续性
-- [ ] 第5阶段：企业知识库
-- [ ] 第6阶段：前端页面
-- [ ] 第7阶段：集成测试
-- [ ] 第8阶段：部署与文档
+- 不要提交 `.env`、API Key、数据库密码、证书私钥。
+- 生产服务器只开放 `80/443/22`。
+- MySQL、Redis、Chroma、Java、Python 不直接暴露公网。
+- BGE 模型通过 volume 挂载，不打进镜像。
+- 2 核 4G 服务器建议开启 2G 以上 swap。
 
 ## License
 
