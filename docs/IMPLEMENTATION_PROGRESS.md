@@ -62,7 +62,7 @@
   - [x] Extended RAG search response with `evidence[]`, `retrievalScores`, and `rankScores`.
   - [x] Routed resume/job indexing through the unified RAG pipeline and returned evidence-backed match fields.
   - [x] Validation passed before deployment artifact removal: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`.
-- [ ] Phase 6: Application evidence loop closeout.
+- [x] Phase 6: Application evidence loop closeout.
   - [x] Added business-facing RAG evidence service for job, resume, knowledge and interview evidence.
   - [x] Added batch `/api/rag/rebuild` index rebuild endpoint.
   - [x] Added Java `POST /api/config/rag-index/rebuild` to rebuild job/resume indexes and trigger knowledge reindexing.
@@ -74,6 +74,23 @@
   - [x] Added manually maintained RAG evaluation samples in `evaluation_samples.json`.
   - [x] Added frontend controls for manual RAG index rebuild and evidence display in matching, interview and report pages.
   - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn -q -DskipTests package`, `npm.cmd run build`.
+- [x] Phase 7: Local demo hardening and matching quality closeout.
+  - [x] Fixed Python dependency resolution for local BGE and Docker builds.
+  - [x] Configured local Docker Python service to use mounted `bge-base-zh-v1.5` with `ALLOW_MOCK_EMBEDDING=false`.
+  - [x] Added model dependency health checks showing provider, path existence, load state, test embedding and actual dimensions.
+  - [x] Fixed Chroma 0.5 collection creation when metadata is empty.
+  - [x] Fixed Java Redis health/config wiring in Docker by using `REDIS_HOST` / `REDIS_PORT`.
+  - [x] Made frontend Nginx resolve Docker backends through `127.0.0.11` at request time to avoid stale container IP 502s.
+  - [x] Added manual skill tag input to the job form so match requirements come from structured `jobs.skills`.
+  - [x] Passed structured job skills from Java to Python resume matching.
+  - [x] Reworked resume match skill extraction so job gaps are based on structured job skills, not arbitrary Chinese phrase extraction.
+  - [x] Scoped match evidence to the current job, current resume and knowledge base, and deduplicated returned evidence.
+  - [x] Added cache fingerprinting for match results so edited job text/skills do not reuse old Redis match output.
+  - [x] Replaced fixed-window chunking with shared structure-aware chunking for RAG evidence and knowledge document processing.
+  - [x] Made `src.services.rag` package initialization lazy to avoid importing embedding/config when only importing utility modules.
+  - [x] Validation passed: `python -m compileall smarthr-python/src`, `mvn.cmd -q -DskipTests package`, `npm.cmd run build`.
+  - [x] Docker validation passed: rebuilt and restarted Java/Python/frontend where needed; Java/Python healthy; frontend `/api/health` returned 200; login probe reached Java; Python `/health/dependencies` reported `local_bge`, loaded, `actualDimensions=768`, mock disabled.
+  - [x] Match probes passed with non-whitelisted skill `Kubernetes`, no missing skills for matching resumes, and evidence limited to the current job/resume.
 
 ## Phase 1 Tasks
 
@@ -100,3 +117,13 @@
 - Deployment files added earlier were removed at user request.
 - Local BGE model directory still must exist at `/opt/smarthr/models/bge-base-zh-v1.5` in the environment where Python runs.
 - Final manual验收 requires `/python/health/dependencies` to report local BGE loaded and `actualDimensions=768`.
+
+## Phase 7 Notes
+
+- Code commits:
+  - `1c3adb8` 修复本地BGE匹配与前端代理稳定性
+  - `d215a19` 优化RAG文本结构化切分
+- Skill aliases in `rag_matcher.py` are used only for normalization, such as `golang -> Go` and `vue3 -> Vue 3`; they are not the source of required job skills.
+- Required job skills should be entered through the job form skill tags and stored in `jobs.skills`.
+- Existing indexed content should be rebuilt after chunking changes so Chroma/BM25 use the new structure-aware chunks.
+- Current untracked local-only paths remain excluded from commits: `.claude/`, `.playwright-mcp/`, `smarthr-java/uploads/`, `smarthr-python/uploads/`.
