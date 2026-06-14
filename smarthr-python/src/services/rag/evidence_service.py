@@ -2,6 +2,7 @@
 
 from typing import Any, Dict, List, Optional
 
+from src.services.rag.chunker import semantic_chunk_text
 from src.services.rag.pipeline import rag_pipeline
 from src.services.rag.schemas import RagIndexRequest, RagSearchRequest, RagSearchResponse
 
@@ -13,29 +14,7 @@ class RagEvidenceService:
         self.collection = "knowledge_base"
 
     def chunk_text(self, text: str, chunk_size: int = 500, overlap: int = 50) -> List[str]:
-        text = (text or "").strip()
-        if not text:
-            return []
-        if len(text) <= chunk_size:
-            return [text]
-
-        chunks: List[str] = []
-        start = 0
-        while start < len(text):
-            end = min(len(text), start + chunk_size)
-            if end < len(text):
-                for punct in ["。", "！", "？", ".", "!", "?", "\n"]:
-                    last = text.rfind(punct, start + chunk_size // 2, end)
-                    if last > start:
-                        end = last + 1
-                        break
-            chunk = text[start:end].strip()
-            if chunk:
-                chunks.append(chunk)
-            if end >= len(text):
-                break
-            start = max(end - overlap, start + 1)
-        return chunks
+        return semantic_chunk_text(text, chunk_size=chunk_size, overlap=overlap)
 
     async def index_text(
         self,
