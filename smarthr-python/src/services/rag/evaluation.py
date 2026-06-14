@@ -1,9 +1,11 @@
 """RAG evaluation service with optional Ragas execution and local fallback."""
 
+import asyncio
 import json
 import math
-import os
 import re
+import sys
+import types
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -88,11 +90,14 @@ class RagEvaluationService:
             sample_results.append(result)
 
         evaluator = "heuristic"
-        notes = "Ragas 依赖或模型配置不可用，已使用本地启发式评测。"
-        ragas_metrics, ragas_sample_metrics = self._try_ragas(ragas_rows)
+        notes = "已使用本地启发式评测。"
+        ragas_metrics, ragas_sample_metrics, ragas_note = await self._try_ragas(
+            ragas_rows,
+            self._evaluation_mode(request.mode),
+        )
         if ragas_metrics:
             evaluator = "ragas"
-            notes = "已使用 Ragas 评测。"
+            notes = ragas_note or "已使用 Ragas + LLM 完整评测。"
             for idx, metrics in ragas_sample_metrics.items():
                 if idx < len(sample_results):
                     sample_results[idx].metrics = metrics
@@ -106,6 +111,8 @@ class RagEvaluationService:
                     )
                     sample_results[idx].passed = passed
                     sample_results[idx].reason = reason
+        elif ragas_note:
+            notes = ragas_note
 
         aggregate_metrics = ragas_metrics or self._aggregate(sample_results)
         failed_samples = [sample for sample in sample_results if not sample.passed]
@@ -222,31 +229,22 @@ class RagEvaluationService:
         }
         return {key: round(float(value), 4) for key, value in metrics.items()}
 
-    def _try_ragas(self, rows: List[Dict[str, object]]) -> Tuple[Dict[str, float], Dict[int, Dict[str, float]]]:
-        mode = settings.ragas_mode.lower()
+    async def _try_ragas(
+        self,
+        rows: List[Dict[str, object]],
+        mode: str,
+    ) -> Tuple[Dict[str, float], Dict[int, Dict[str, float]], str]:
         if not rows or mode in {"off", "false", "none", "heuristic"}:
-            return {}, {}
-        if mode == "auto" and not (settings.openai_api_key or os.getenv("OPENAI_API_KEY")):
-            return {}, {}
+            return {}, {}, "已使用本地启发式评测。"
+        if mode not in {"auto", "ragas", "full"}:
+            return {}, {}, f"未知评测模式 {mode}，已使用本地启发式评测。"
 
         try:
-            from datasets import Dataset
-            from ragas import evaluate
-            from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
-
-            dataset = Dataset.from_dict({
-                "question": [row["question"] for row in rows],
-                "answer": [row["answer"] for row in rows],
-                "contexts": [row["contexts"] for row in rows],
-                "ground_truth": [row["ground_truth"] for row in rows],
-            })
-            score = evaluate(
-                dataset,
-                metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
-            )
-            frame = score.to_pandas()
-        except Exception:
-            return {}, {}
+            frame = await asyncio.to_thread(self._run_ragas_evaluate, rows)
+        except Exception as exc:
+            if mode in {"ragas", "full"}:
+                return {}, {}, f"Ragas + LLM 完整评测不可用，已降级为本地启发式评测：{exc}"
+            return {}, {}, "Ragas + LLM 配置不可用，已使用本地启发式评测。"
 
         aliases = {
             "faithfulness": "faithfulness",
@@ -273,7 +271,104 @@ class RagEvaluationService:
         for key in METRIC_KEYS:
             values = aggregate_lists.get(key) or []
             aggregate[key] = round(sum(values) / len(values), 4) if values else 0.0
-        return aggregate, sample_metrics
+        if not any(aggregate.values()):
+            return {}, {}, "Ragas 未返回有效指标，已使用本地启发式评测。"
+        return aggregate, sample_metrics, self._ragas_success_note()
+
+    def _run_ragas_evaluate(self, rows: List[Dict[str, object]]):
+        self._install_ragas_import_shim()
+        from datasets import Dataset
+        from ragas import evaluate
+        from ragas.embeddings import LangchainEmbeddingsWrapper
+        from ragas.llms import LangchainLLMWrapper
+        from ragas.metrics import answer_relevancy, context_precision, context_recall, faithfulness
+
+        ragas_llm = LangchainLLMWrapper(self._build_ragas_llm())
+        ragas_embeddings = LangchainEmbeddingsWrapper(self._build_ragas_embeddings())
+
+        dataset = Dataset.from_dict({
+            "question": [row["question"] for row in rows],
+            "answer": [row["answer"] for row in rows],
+            "contexts": [row["contexts"] for row in rows],
+            "ground_truth": [row["ground_truth"] for row in rows],
+        })
+        score = evaluate(
+            dataset,
+            metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
+            llm=ragas_llm,
+            embeddings=ragas_embeddings,
+            raise_exceptions=False,
+            show_progress=False,
+        )
+        return score.to_pandas()
+
+    def _evaluation_mode(self, requested_mode: Optional[str]) -> str:
+        return str(requested_mode or settings.ragas_mode or "heuristic").strip().lower()
+
+    def _build_ragas_llm(self):
+        from langchain_openai import ChatOpenAI
+
+        provider = str(settings.ragas_llm_provider or settings.llm_provider or "deepseek").lower()
+        if provider == "openai":
+            api_key = settings.ragas_llm_api_key or settings.openai_api_key
+            base_url = settings.ragas_llm_base_url or settings.openai_base_url
+            model = settings.ragas_llm_model or settings.openai_model
+        else:
+            api_key = settings.ragas_llm_api_key or settings.deepseek_api_key or settings.openai_api_key
+            base_url = settings.ragas_llm_base_url or settings.deepseek_base_url or settings.openai_base_url
+            model = settings.ragas_llm_model or settings.deepseek_model or settings.openai_model
+
+        if not api_key:
+            raise RuntimeError("RAGas LLM API Key 未配置，请设置 RAGAS_LLM_API_KEY、DEEPSEEK_API_KEY 或 OPENAI_API_KEY")
+
+        return ChatOpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            model=model,
+            temperature=0,
+            timeout=settings.ragas_timeout_seconds,
+            max_retries=1,
+        )
+
+    def _build_ragas_embeddings(self):
+        from langchain_core.embeddings import Embeddings
+        from src.services.rag.embedding_service import embedding_service
+
+        class LocalEmbeddingAdapter(Embeddings):
+            def embed_documents(self, texts: List[str]) -> List[List[float]]:
+                client = embedding_service._get_client()
+                if client is None:
+                    return [embedding_service._mock_embedding(text) for text in texts]
+                if embedding_service._is_local_provider():
+                    vectors = client.encode(texts, normalize_embeddings=True)
+                    return [embedding_service._vector_to_list(vector) for vector in vectors]
+                return client.embed_documents(texts)
+
+            def embed_query(self, text: str) -> List[float]:
+                client = embedding_service._get_client()
+                if client is None:
+                    return embedding_service._mock_embedding(text)
+                if embedding_service._is_local_provider():
+                    vector = client.encode(text, normalize_embeddings=True)
+                    return embedding_service._vector_to_list(vector)
+                return client.embed_query(text)
+
+        return LocalEmbeddingAdapter()
+
+    def _install_ragas_import_shim(self) -> None:
+        module_name = "langchain_community.chat_models.vertexai"
+        if module_name in sys.modules:
+            return
+        module = types.ModuleType(module_name)
+        module.ChatVertexAI = type("ChatVertexAI", (), {})
+        sys.modules[module_name] = module
+
+    def _ragas_success_note(self) -> str:
+        provider = str(settings.ragas_llm_provider or settings.llm_provider or "deepseek")
+        model = settings.ragas_llm_model or (
+            settings.openai_model if provider.lower() == "openai" else settings.deepseek_model
+        )
+        return f"已使用 Ragas + LLM 完整评测，评测模型：{provider}/{model}。"
 
     def _sample_status(
         self,

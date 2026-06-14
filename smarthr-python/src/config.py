@@ -48,9 +48,14 @@ class Settings(BaseSettings):
     rerank_base_url: str = os.getenv("RERANK_BASE_URL", "")
     rerank_model: str = os.getenv("RERANK_MODEL", "bge-reranker-v2-m3")
 
-    # RAG 评测配置 - auto 会在 Ragas 可用且模型配置齐全时使用真实评测，否则降级
-    ragas_mode: str = os.getenv("RAGAS_MODE", "auto")
+    # RAG 评测配置。默认使用本地启发式评测；完整 RAGas 需要手动选择或设置 RAGAS_MODE=ragas。
+    ragas_mode: str = os.getenv("RAGAS_MODE", "heuristic")
     ragas_threshold: float = float(os.getenv("RAGAS_THRESHOLD", "0.70"))
+    ragas_llm_provider: str = os.getenv("RAGAS_LLM_PROVIDER", os.getenv("LLM_PROVIDER", "deepseek"))
+    ragas_llm_api_key: str = os.getenv("RAGAS_LLM_API_KEY", "")
+    ragas_llm_base_url: str = os.getenv("RAGAS_LLM_BASE_URL", "")
+    ragas_llm_model: str = os.getenv("RAGAS_LLM_MODEL", "")
+    ragas_timeout_seconds: float = float(os.getenv("RAGAS_TIMEOUT_SECONDS", "120"))
 
     # 可选 MCP HTTP 网关配置；未启用时内部 tools/skills 继续工作
     mcp_enabled: bool = os.getenv("MCP_ENABLED", "false").lower() == "true"

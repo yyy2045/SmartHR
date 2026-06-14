@@ -78,6 +78,7 @@ class RagEvaluationRequest(BaseModel):
     collection: str = "knowledge_base"
     topK: int = 5
     threshold: Optional[float] = None
+    mode: Optional[str] = None
     samples: List[RagEvaluationSample] = Field(default_factory=list)
 
 
