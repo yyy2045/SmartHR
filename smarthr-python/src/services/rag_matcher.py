@@ -92,6 +92,7 @@ class RAGMatcher:
     async def match(self, job_id: str, resume_text: str,
                     resume_id: Optional[str] = None,
                     job_text: str = "",
+                    job_skills: Optional[List[str]] = None,
                     parsed_resume: Optional[Dict[str, Any]] = None,
                     company_id: Optional[str] = None) -> MatchResult:
         """将简历与岗位描述进行匹配
@@ -104,10 +105,18 @@ class RAGMatcher:
             parsed_resume: 已结构化的简历数据，包含 skills/experience/education 等。
                 若提供则用其替代 resume_text 全文喂 LLM，大幅降低 token
         """
+        import hashlib
+        import json
         from src.services.redis_service import redis_service
 
-        # 结果缓存：相同 (company_id, job_id, resume_id) 24h 内复用，避免重复点击烧 token
-        cache_key = f"match:v2:{company_id}:{job_id}:{resume_id or 'none'}"
+        # 结果缓存：把岗位正文和结构化技能纳入指纹，避免修改岗位后仍命中旧结果。
+        fingerprint_payload = json.dumps(
+            {"job_text": job_text or "", "job_skills": job_skills or []},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+        source_fingerprint = hashlib.sha1(fingerprint_payload.encode("utf-8")).hexdigest()[:12]
+        cache_key = f"match:v7:{company_id}:{job_id}:{resume_id or 'none'}:{source_fingerprint}"
         try:
             cached = redis_service.get(cache_key)
             if cached and isinstance(cached, dict) and "score" in cached:
@@ -115,10 +124,15 @@ class RAGMatcher:
         except Exception as e:
             print(f"[rag_matcher] cache read failed: {e}")
 
-        # 关键词提取（支持中英文）
-        job_keywords = self._extract_keywords(job_text)
-        resume_keywords = self._extract_keywords(resume_text)
-        matched_skills, missing_skills = self._skill_gap(job_keywords, resume_keywords, parsed_resume)
+        # 岗位技能优先来自 jobs.skills，描述文本只作为“技能：...”字段兜底。
+        job_keywords = self._extract_job_skills(job_text=job_text, job_skills=job_skills)
+        resume_keywords = self._extract_resume_skills(resume_text, parsed_resume)
+        matched_skills, missing_skills = self._skill_gap(
+            job_keywords,
+            resume_keywords,
+            parsed_resume,
+            resume_text,
+        )
 
         await self._index_match_context(
             job_id=job_id,
@@ -170,12 +184,14 @@ class RAGMatcher:
         trace_id = None
         try:
             search_response = await self._search_match_evidence(
+                job_id=job_id,
+                resume_id=resume_id,
                 job_text=job_text,
                 resume_text=resume_text,
                 parsed_resume=parsed_resume,
                 company_id=company_id or "default",
             )
-            evidence = [item.model_dump() for item in search_response.evidence]
+            evidence = self._dedupe_evidence([item.model_dump() for item in search_response.evidence])
             retrieval_scores = search_response.retrievalScores
             rank_scores = search_response.rankScores
             trace_id = search_response.traceId
@@ -227,6 +243,8 @@ class RAGMatcher:
 
     async def _search_match_evidence(
         self,
+        job_id: str,
+        resume_id: Optional[str],
         job_text: str,
         resume_text: str,
         parsed_resume: Optional[Dict[str, Any]],
@@ -234,7 +252,7 @@ class RAGMatcher:
     ):
         from src.services.rag.evidence_service import rag_evidence_service
 
-        return await rag_evidence_service.search_evidence(
+        response = await rag_evidence_service.search_evidence(
             query=rag_evidence_service.build_match_query(
                 job_text=job_text,
                 resume_text=resume_text,
@@ -242,22 +260,79 @@ class RAGMatcher:
             ),
             company_id=str(company_id or "default"),
             source_types=["job", "resume", "knowledge"],
-            top_k=6,
+            top_k=24,
         )
+
+        job_id = str(job_id)
+        resume_id = str(resume_id) if resume_id is not None else None
+
+        def allowed(source_type: str, source_id: str) -> bool:
+            if source_type == "knowledge":
+                return True
+            if source_type == "job":
+                return str(source_id) == job_id
+            if source_type == "resume":
+                return bool(resume_id and str(source_id) == resume_id)
+            return False
+
+        response.sources = [
+            source for source in response.sources
+            if allowed(source.sourceType, source.sourceId)
+        ][:6]
+        response.evidence = [
+            item for item in response.evidence
+            if allowed(item.sourceType, item.sourceId)
+        ][:6]
+        allowed_chunk_ids = {source.chunkId for source in response.sources}
+        response.rankScores = [
+            score for score in response.rankScores
+            if score.get("chunkId") in allowed_chunk_ids
+        ][:6]
+        response.retrievalScores = {
+            **response.retrievalScores,
+            "evidenceScope": "current_job_resume_knowledge",
+            "filteredReturned": len(response.evidence),
+        }
+        response.retrievalMetrics = response.retrievalScores
+        return response
 
     def _skill_gap(
         self,
         job_keywords: set,
         resume_keywords: set,
         parsed_resume: Optional[Dict[str, Any]],
+        resume_text: str = "",
     ) -> tuple[List[str], List[str]]:
         required = {str(keyword).lower() for keyword in job_keywords if len(str(keyword)) >= 2}
         resume_terms = {str(keyword).lower() for keyword in resume_keywords if len(str(keyword)) >= 2}
         if parsed_resume and isinstance(parsed_resume, dict):
-            resume_terms.update(str(skill).lower() for skill in parsed_resume.get("skills") or [])
-        matched = sorted(required & resume_terms)
-        missing = sorted(required - resume_terms)
-        return matched[:20], missing[:20]
+            for skill in parsed_resume.get("skills") or []:
+                canonical = self._canonical_skill(str(skill))
+                if canonical:
+                    resume_terms.add(canonical)
+        matched_set = {
+            skill for skill in required
+            if self._resume_has_skill(skill, resume_terms, resume_text)
+        }
+        matched = sorted(matched_set, key=self._skill_sort_key)
+        missing = sorted(required - matched_set, key=self._skill_sort_key)
+        return [self._display_skill(skill) for skill in matched[:20]], [self._display_skill(skill) for skill in missing[:20]]
+
+    def _dedupe_evidence(self, evidence: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        seen = set()
+        result = []
+        for item in evidence:
+            key = (
+                item.get("sourceType"),
+                item.get("sourceId"),
+                item.get("chunkId"),
+                (item.get("text") or item.get("highlight") or "")[:120],
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(item)
+        return result
 
     def _risk_texts(self, risk_points: List[Dict[str, Any]], missing_skills: List[str]) -> List[str]:
         risks = []
@@ -313,88 +388,6 @@ class RAGMatcher:
                 return "\n".join(parts)
         # 退回到截短的原文
         return (resume_text or "")[:1500]
-
-    def _extract_keywords(self, text: str) -> set:
-        """关键词提取（支持中英文）"""
-        if not text:
-            return set()
-        import re
-        # 英文/数字词（3 字以上）
-        en_words = re.findall(r'\b[a-zA-Z0-9][a-zA-Z0-9+#.\-]{2,}\b', text.lower())
-        en_stopwords = {
-            'the', 'and', 'for', 'with', 'you', 'are', 'this', 'that', 'from',
-            'have', 'has', 'was', 'will', 'can', 'your', 'job', 'job_id',
-            'description', 'requirements'
-        }
-        en_keywords = {w for w in en_words if w not in en_stopwords}
-        # 中文 2-4 字短语（粗粒度）
-        cn_phrases = set(re.findall(r'[一-龥]{2,4}', text))
-        cn_stopwords = {'岗位', '描述', '要求', '任职', '技能', '简历', '工作', '负责', '项目', '使用'}
-        cn_keywords = cn_phrases - cn_stopwords
-        return en_keywords | cn_keywords
-
-    def _calculate_objective_score(self, job_text: str, resume_text: str,
-                                   parsed_resume: Optional[Dict[str, Any]],
-                                   job_keywords: set, resume_keywords: set) -> float:
-        """多维度客观评分（0-100）"""
-        if not job_text or not resume_text:
-            return 30.0  # 缺少文本信息给低分
-
-        # 维度1：关键词匹配率 (占40分)
-        keyword_score = 0.0
-        if job_keywords and resume_keywords:
-            match_count = sum(1 for kw in job_keywords if kw in resume_keywords)
-            recall = match_count / max(len(job_keywords), 1)
-            precision = match_count / max(len(resume_keywords), 1)
-            # F1 风格的综合得分
-            if recall + precision > 0:
-                f1 = 2 * recall * precision / (recall + precision)
-                keyword_score = f1 * 40
-        elif job_keywords or resume_keywords:
-            keyword_score = 5.0  # 只有一个有关键词，极低
-
-        # 维度2：技能匹配 (占30分)
-        skill_score = 0.0
-        if parsed_resume and isinstance(parsed_resume, dict):
-            required_skills = set()
-            # 从岗位描述中提技能关键词
-            for kw in job_keywords:
-                if len(kw) >= 2:
-                    required_skills.add(kw.lower())
-            resume_skills = set()
-            for s in (parsed_resume.get("skills") or []):
-                resume_skills.add(str(s).lower())
-            if required_skills and resume_skills:
-                matched = required_skills & resume_skills
-                skill_score = (len(matched) / max(len(required_skills), 1)) * 30
-
-        # 维度3：经验相关度 (占20分)
-        exp_score = 0.0
-        if parsed_resume and isinstance(parsed_resume, dict):
-            exp_list = parsed_resume.get("experience") or []
-            if exp_list:
-                # 简单检查经历描述中是否包含岗位相关词
-                exp_text = " ".join([
-                    str(e.get("title", "")) + " " + str(e.get("description", ""))
-                    for e in exp_list if isinstance(e, dict)
-                ])
-                exp_kw_match = sum(1 for kw in job_keywords if kw.lower() in exp_text.lower())
-                exp_score = min(20.0, (exp_kw_match / max(len(job_keywords), 1)) * 20)
-
-        # 维度4：教育背景相关度 (占10分)
-        edu_score = 0.0
-        if parsed_resume and isinstance(parsed_resume, dict):
-            edu_list = parsed_resume.get("education") or []
-            if edu_list:
-                edu_text = " ".join([
-                    str(e.get("major", "")) + " " + str(e.get("degree", ""))
-                    for e in edu_list if isinstance(e, dict)
-                ])
-                edu_kw_match = sum(1 for kw in job_keywords if kw.lower() in edu_text.lower())
-                edu_score = min(10.0, (edu_kw_match / max(len(job_keywords), 1)) * 10)
-
-        total = keyword_score + skill_score + exp_score + edu_score
-        return max(5.0, min(95.0, round(total, 1)))
 
     async def _generate_match_details(self, job_text: str,
                                       resume_brief: str) -> tuple[List[Dict], List[Dict]]:
@@ -453,6 +446,288 @@ class RAGMatcher:
 
         await self.index_resume(resume_id, full_text, metadata)
 
+    # 技能解析辅助方法：用于别名归一化和文本命中判断，不作为岗位技能来源白名单。
+    def _skill_aliases(self) -> Dict[str, str]:
+        return {
+            "python": "python",
+            "go": "go",
+            "golang": "go",
+            "java": "java",
+            "spring boot": "spring boot",
+            "springboot": "spring boot",
+            "mybatis-plus": "mybatis-plus",
+            "mybatisplus": "mybatis-plus",
+            "ssm": "ssm",
+            "fastapi": "fastapi",
+            "langchain": "langchain",
+            "langgraph": "langgraph",
+            "llamaindex": "llamaindex",
+            "llama index": "llamaindex",
+            "gpt": "gpt",
+            "chatgpt": "gpt",
+            "claude": "claude",
+            "deepseek": "deepseek",
+            "文心一言": "文心一言",
+            "ernie": "文心一言",
+            "rag": "rag",
+            "milvus": "milvus",
+            "pinecone": "pinecone",
+            "chroma": "chroma",
+            "redis": "redis",
+            "mysql": "mysql",
+            "docker": "docker",
+            "nginx": "nginx",
+            "linux": "linux",
+            "vue": "vue 3",
+            "vue3": "vue 3",
+            "vue 3": "vue 3",
+            "jwt": "jwt",
+            "prompt": "prompt",
+            "prompt engineering": "prompt",
+            "prompt优化": "prompt",
+            "prompt调优": "prompt",
+            "提示词": "prompt",
+        }
 
-# 全局实例
+    def _canonical_skill(self, value: str) -> Optional[str]:
+        import re
+
+        text = str(value or "").strip().lower()
+        if not text:
+            return None
+        compact = re.sub(r"[\s_\-/]+", "", text)
+        for alias, canonical in self._skill_aliases().items():
+            alias_lower = alias.lower()
+            alias_compact = re.sub(r"[\s_\-/]+", "", alias_lower)
+            if text == alias_lower or compact == alias_compact:
+                return canonical
+            if any("\u4e00" <= char <= "\u9fff" for char in alias_lower):
+                if alias_lower in text or alias_compact in compact:
+                    return canonical
+            elif len(alias_compact) <= 3:
+                pattern = rf"(?<![a-z0-9+#.\-]){re.escape(alias_lower)}(?![a-z0-9+#.\-])"
+                if re.search(pattern, text):
+                    return canonical
+            elif alias_lower in text or alias_compact in compact:
+                return canonical
+        normalized = re.sub(r"\s+", " ", text.strip(" []\"'，,、；;：:")).strip()
+        return normalized or None
+
+    def _display_skill(self, skill: str) -> str:
+        display = {
+            "python": "Python",
+            "go": "Go",
+            "java": "Java",
+            "spring boot": "Spring Boot",
+            "mybatis-plus": "MyBatis-Plus",
+            "ssm": "SSM",
+            "fastapi": "FastAPI",
+            "langchain": "LangChain",
+            "langgraph": "LangGraph",
+            "llamaindex": "LlamaIndex",
+            "gpt": "GPT",
+            "claude": "Claude",
+            "deepseek": "DeepSeek",
+            "文心一言": "文心一言",
+            "rag": "RAG",
+            "milvus": "Milvus",
+            "pinecone": "Pinecone",
+            "chroma": "Chroma",
+            "redis": "Redis",
+            "mysql": "MySQL",
+            "docker": "Docker",
+            "nginx": "Nginx",
+            "linux": "Linux",
+            "vue 3": "Vue 3",
+            "jwt": "JWT",
+            "prompt": "Prompt 调优",
+        }
+        if skill in display:
+            return display[skill]
+        if skill.replace(" ", "").replace("-", "").isalnum():
+            return " ".join(part.capitalize() for part in skill.replace("-", " ").split())
+        return skill
+
+    def _skill_sort_key(self, skill: str) -> tuple[int, str]:
+        priority = [
+            "python", "go", "java", "fastapi", "spring boot", "mybatis-plus",
+            "langchain", "langgraph", "llamaindex", "gpt", "claude", "deepseek",
+            "文心一言", "rag", "milvus", "pinecone", "chroma", "redis", "mysql",
+            "docker", "nginx", "linux", "vue 3", "prompt", "jwt",
+        ]
+        return (priority.index(skill) if skill in priority else len(priority), skill)
+
+    def _text_mentions_skill(self, text: str, alias: str) -> bool:
+        import re
+
+        lowered = str(text or "").lower()
+        alias_lower = alias.lower()
+        compact_text = re.sub(r"[\s_\-/]+", "", lowered)
+        compact_alias = re.sub(r"[\s_\-/]+", "", alias_lower)
+        if any("\u4e00" <= char <= "\u9fff" for char in alias_lower):
+            return alias_lower in lowered or compact_alias in compact_text
+        if len(compact_alias) <= 3:
+            pattern = rf"(?<![a-z0-9+#.\-]){re.escape(alias_lower)}(?![a-z0-9+#.\-])"
+            return bool(re.search(pattern, lowered))
+        return alias_lower in lowered or compact_alias in compact_text
+
+    def _extract_keywords(self, text: str) -> set:
+        """Extract only explicit technical skills, not generic Chinese phrases."""
+        if not text:
+            return set()
+        skills = set()
+        for alias, canonical in self._skill_aliases().items():
+            if self._text_mentions_skill(text, alias):
+                skills.add(canonical)
+        return skills
+
+    def _calculate_objective_score(self, job_text: str, resume_text: str,
+                                   parsed_resume: Optional[Dict[str, Any]],
+                                   job_keywords: set, resume_keywords: set) -> float:
+        """Score by explicit job skill coverage plus experience evidence."""
+        if not job_text or not resume_text:
+            return 30.0
+
+        required_skills = {str(skill).lower() for skill in job_keywords if skill}
+        resume_skills = {str(skill).lower() for skill in resume_keywords if skill}
+        if parsed_resume and isinstance(parsed_resume, dict):
+            for skill in parsed_resume.get("skills") or []:
+                canonical = self._canonical_skill(str(skill))
+                if canonical:
+                    resume_skills.add(canonical)
+
+        if not required_skills:
+            return 45.0 if resume_skills else 30.0
+
+        matched = {
+            skill for skill in required_skills
+            if self._resume_has_skill(skill, resume_skills, resume_text)
+        }
+        recall = len(matched) / max(len(required_skills), 1)
+        skill_score = recall * 60
+        breadth_score = (min(len(matched), 5) / 5) * 15
+        partial_score = self._partial_skill_score(required_skills - matched, resume_skills)
+
+        exp_score = 0.0
+        if parsed_resume and isinstance(parsed_resume, dict):
+            exp_text = " ".join(
+                f"{item.get('title', '')} {item.get('description', '')}"
+                for item in (parsed_resume.get("experience") or [])
+                if isinstance(item, dict)
+            )
+            exp_skills = self._extract_keywords(exp_text)
+            if exp_skills:
+                exp_matched = {
+                    skill for skill in required_skills
+                    if self._resume_has_skill(skill, exp_skills, exp_text)
+                }
+                exp_score = (len(exp_matched) / max(len(required_skills), 1)) * 15
+
+        education_score = 5.0 if parsed_resume and parsed_resume.get("education") else 0.0
+        total = skill_score + breadth_score + partial_score + exp_score + education_score
+        return max(5.0, min(95.0, round(total, 1)))
+
+    def _partial_skill_score(self, missing_required: set, resume_skills: set) -> float:
+        related_groups = [
+            ({"milvus", "pinecone"}, {"chroma"}, 5.0),
+            ({"gpt", "claude", "文心一言"}, {"deepseek"}, 5.0),
+            ({"llamaindex"}, {"langchain", "langgraph"}, 5.0),
+        ]
+        score = 0.0
+        for required_group, alternative_group, points in related_groups:
+            if missing_required & required_group and resume_skills & alternative_group:
+                score += points
+        return min(score, 15.0)
+
+
+    def _extract_job_skills(
+        self,
+        *,
+        job_text: str,
+        job_skills: Optional[List[str]] = None,
+    ) -> set:
+        explicit = self._normalize_skill_list(job_skills or [])
+        if explicit:
+            return explicit
+        return self._normalize_skill_list(self._parse_skill_candidates_from_text(job_text))
+
+    def _extract_resume_skills(
+        self,
+        resume_text: str,
+        parsed_resume: Optional[Dict[str, Any]],
+    ) -> set:
+        skills = []
+        if parsed_resume and isinstance(parsed_resume, dict):
+            skills.extend(parsed_resume.get("skills") or [])
+        explicit = self._normalize_skill_list(skills)
+        # The raw resume text is used only to detect required job skills later,
+        # not to create arbitrary missing-skill candidates.
+        explicit.update(self._extract_keywords(resume_text))
+        return explicit
+
+    def _normalize_skill_list(self, skills: List[Any]) -> set:
+        normalized = set()
+        for item in skills:
+            if item is None:
+                continue
+            if isinstance(item, list):
+                normalized.update(self._normalize_skill_list(item))
+                continue
+            skill = self._canonical_skill(str(item))
+            if skill and not self._is_noise_skill(skill):
+                normalized.add(skill)
+        return normalized
+
+    def _parse_skill_candidates_from_text(self, text: str) -> List[str]:
+        import json
+        import re
+
+        candidates: List[str] = []
+        if not text:
+            return candidates
+
+        for raw_array in re.findall(r"\[[^\]]+\]", text):
+            try:
+                parsed = json.loads(raw_array)
+                if isinstance(parsed, list):
+                    candidates.extend(str(item) for item in parsed)
+            except Exception:
+                pass
+
+        for line in text.splitlines():
+            if not re.search(r"(技能|skills|required skills|requirements)", line, re.IGNORECASE):
+                continue
+            value = re.split(r"[:：]", line, maxsplit=1)
+            if len(value) != 2:
+                continue
+            candidates.extend(
+                item.strip(" []\"'")
+                for item in re.split(r"[,，、;/；]", value[1])
+                if item.strip(" []\"'")
+            )
+        return candidates
+
+    def _is_noise_skill(self, skill: str) -> bool:
+        noise = {
+            "岗位要求", "任职要求", "业务场景", "产品线", "体验", "具备",
+            "熟练掌握", "实际项目", "本科及以上学历", "相关专业",
+        }
+        return skill in noise or len(skill) > 40
+
+    def _resume_has_skill(self, required_skill: str, resume_terms: set, resume_text: str) -> bool:
+        if required_skill in resume_terms:
+            return True
+        for group in self._equivalent_skill_groups():
+            if required_skill in group and resume_terms & group:
+                return True
+        return self._text_mentions_skill(resume_text, required_skill)
+
+    def _equivalent_skill_groups(self) -> List[set]:
+        return [
+            {"prompt", "prompt调优", "prompt优化", "提示词"},
+            {"go", "golang"},
+            {"vue 3", "vue3", "vue"},
+        ]
+
+
 rag_matcher = RAGMatcher()

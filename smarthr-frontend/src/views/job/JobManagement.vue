@@ -77,10 +77,24 @@
           </el-select>
         </el-form-item>
         <el-form-item label="技能标签">
-          <el-tag v-for="tag in jobForm.tags" :key="tag" closable @close="removeTag(tag)" style="margin-right: 8px">
-            {{ tag }}
-          </el-tag>
-          <el-button v-if="isEdit" size="small" @click="extractTags" :loading="extracting">AI 提取标签</el-button>
+          <div class="tag-editor">
+            <div class="tag-list">
+              <el-tag v-for="tag in jobForm.tags" :key="tag" closable @close="removeTag(tag)">
+                {{ tag }}
+              </el-tag>
+              <span v-if="jobForm.tags.length === 0" class="empty-tags">未添加技能</span>
+            </div>
+            <div class="tag-input-row">
+              <el-input
+                v-model="newTag"
+                placeholder="输入技能后回车"
+                clearable
+                @keyup.enter.prevent="addTag"
+              />
+              <el-button @click="addTag">添加</el-button>
+              <el-button v-if="isEdit" @click="extractTags" :loading="extracting">AI 提取标签</el-button>
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -106,8 +120,8 @@ const dialogTitle = ref('创建岗位')
 const isEdit = ref(false)
 const submitting = ref(false)
 const extracting = ref(false)
+const newTag = ref('')
 const formRef = ref()
-const editorRef = ref()
 
 const pagination = reactive({
   page: 1,
@@ -183,9 +197,13 @@ const viewJob = (row) => editJob(row)
 const formatSkillsArray = (skills) => {
   if (!skills) return []
   try {
-    return JSON.parse(skills)
+    const parsed = JSON.parse(skills)
+    return Array.isArray(parsed) ? parsed.map(item => String(item).trim()).filter(Boolean) : []
   } catch {
-    return []
+    return String(skills)
+      .split(/[,，、;\n]/)
+      .map(item => item.trim())
+      .filter(Boolean)
   }
 }
 
@@ -202,6 +220,17 @@ const deleteJob = async (row) => {
 
 const removeTag = (tag) => {
   jobForm.tags = jobForm.tags.filter(t => t !== tag)
+}
+
+const addTag = () => {
+  const tag = newTag.value.trim()
+  if (!tag) return
+  if (jobForm.tags.includes(tag)) {
+    newTag.value = ''
+    return
+  }
+  jobForm.tags.push(tag)
+  newTag.value = ''
 }
 
 const extractTags = async () => {
@@ -233,6 +262,7 @@ const resetForm = () => {
   jobForm.educationLevel = ''
   jobForm.tags = []
   jobForm.status = 'OPEN'
+  newTag.value = ''
 }
 
 const submitForm = async () => {
@@ -277,5 +307,37 @@ onMounted(fetchJobs)
   display: flex;
   gap: 4px;
   flex-wrap: nowrap;
+}
+
+.tag-editor {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tag-list {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.empty-tags {
+  color: #909399;
+  font-size: 13px;
+}
+
+.tag-input-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .tag-input-row {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

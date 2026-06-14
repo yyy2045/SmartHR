@@ -55,16 +55,22 @@ public class ResumeAIService {
     }
 
     public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText) {
-        return matchResume(resumeId, jobId, resumeText, null, null, null);
+        return matchResume(resumeId, jobId, resumeText, null, null, null, null);
     }
 
     public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText,
                                       String jobText, String parsedResumeJson) {
-        return matchResume(resumeId, jobId, resumeText, jobText, parsedResumeJson, null);
+        return matchResume(resumeId, jobId, resumeText, jobText, parsedResumeJson, null, null);
     }
 
     public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText,
                                       String jobText, String parsedResumeJson, Long companyId) {
+        return matchResume(resumeId, jobId, resumeText, jobText, parsedResumeJson, companyId, null);
+    }
+
+    public MatchResultDTO matchResume(Long resumeId, Long jobId, String resumeText,
+                                      String jobText, String parsedResumeJson, Long companyId,
+                                      List<String> jobSkills) {
         String url = pythonServiceUrl + "/api/resume/match";
 
         HttpHeaders headers = new HttpHeaders();
@@ -76,6 +82,9 @@ public class ResumeAIService {
         body.put("resume_text", resumeText);
         if (jobText != null && !jobText.isEmpty()) {
             body.put("job_text", jobText);
+        }
+        if (jobSkills != null && !jobSkills.isEmpty()) {
+            body.put("job_skills", jobSkills);
         }
         if (parsedResumeJson != null && !parsedResumeJson.isEmpty()) {
             try {

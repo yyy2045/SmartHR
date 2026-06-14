@@ -21,6 +21,7 @@ class ResumeMatchRequest(BaseModel):
     job_id: str
     resume_text: str
     job_text: Optional[str] = ""
+    job_skills: Optional[List[str]] = None
     parsed_resume: Optional[Dict[str, Any]] = None
     company_id: Optional[str] = None
 
@@ -109,6 +110,7 @@ async def match_resume(request: ResumeMatchRequest):
             resume_text=request.resume_text,
             resume_id=request.resume_id,
             job_text=request.job_text or "",
+            job_skills=request.job_skills,
             parsed_resume=request.parsed_resume,
             company_id=company_id
         )

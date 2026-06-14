@@ -2,12 +2,14 @@
 FROM node:18-alpine AS builder
 
 WORKDIR /app
+ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 # Copy package files
 COPY package*.json ./
 
 # Install dependencies
-RUN npm install
+RUN npm config set registry ${NPM_REGISTRY} \
+    && npm ci --no-audit --no-fund
 
 # Copy source
 COPY . .

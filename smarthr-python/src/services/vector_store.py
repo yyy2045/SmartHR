@@ -32,10 +32,12 @@ class VectorStoreService:
 
     def create_collection(self, name: str, metadata: Optional[Dict] = None):
         """创建或获取集合"""
-        return self.client.get_or_create_collection(
-            name=name,
-            metadata=metadata or {}
-        )
+        if metadata:
+            return self.client.get_or_create_collection(
+                name=name,
+                metadata=metadata
+            )
+        return self.client.get_or_create_collection(name=name)
 
     def add(
         self,
