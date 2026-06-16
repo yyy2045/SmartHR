@@ -1,6 +1,4 @@
-"""
-面试 API - 基于 LangGraph 的多智能体面试系统
-"""
+"""面试会话 API：负责状态持久化、证据准备和 LangGraph 调度。"""
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,7 +12,6 @@ from src.services.rag.evidence_service import rag_evidence_service
 
 router = APIRouter(prefix="/api/interview", tags=["面试"])
 
-# 请求/响应模型
 class CreateSessionRequest(BaseModel):
     """创建面试会话请求"""
     job_id: str
@@ -66,7 +63,7 @@ def _filter_session_evidence(
     resume_id: Optional[str] = None,
     session_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """过滤掉当前面试上下文之外的岗位/简历/面试记录证据"""
+    """保留当前岗位、当前简历、当前会话及通用知识库证据。"""
     filtered = []
     current_job_id = str(job_id) if job_id is not None else None
     current_resume_id = str(resume_id) if resume_id is not None else None
@@ -97,7 +94,7 @@ def _filter_session_evidence(
     return filtered
 
 async def _prepare_session_evidence(request: CreateSessionRequest) -> Dict[str, Any]:
-    """会话创建前准备 RAG 索引与匹配证据"""
+    """索引当前岗位/简历，并检索首问可引用的证据。"""
     company_id = request.company_id or "default"
     job_text = request.job_description or ""
     resume_text = request.resume_text or ""
@@ -139,7 +136,7 @@ async def _prepare_session_evidence(request: CreateSessionRequest) -> Dict[str, 
 
 
 async def _run_interview_graph(state: Dict[str, Any]) -> Dict[str, Any]:
-    """在线程池中执行同步 LangGraph，避免阻塞 FastAPI 事件循环"""
+    """LangGraph 当前为同步调用，通过线程池接入异步接口。"""
     graph = get_interview_graph()
     session_id = str(state.get("session_id") or "default")
     config = {
@@ -153,7 +150,7 @@ async def _run_interview_graph(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _question_metadata(question: Dict[str, Any]) -> Dict[str, Any]:
-    """抽取面试问题需要写入历史记录的元数据"""
+    """保留问题追溯信息，供报告和前端证据展示使用。"""
     return {
         "question_type": question.get("question_type", "OPEN"),
         "competency": question.get("competency", ""),
@@ -163,7 +160,7 @@ def _question_metadata(question: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _persist_graph_scores(session_id: str, state: Dict[str, Any]) -> Dict[str, Any]:
-    """将图节点产生的评分同步到 Redis 独立评分 key"""
+    """将图节点更新的评分同步到 Redis 独立评分键。"""
     skill_scores = state.get("skill_scores", {}) or {}
     behavior_scores = state.get("behavior_scores", {}) or {}
     if skill_scores:
@@ -174,7 +171,6 @@ async def _persist_graph_scores(session_id: str, state: Dict[str, Any]) -> Dict[
     state["behavior_scores"] = await interview_state_manager.get_behavior_scores(session_id)
     return state
 
-# 创建新的面试会话并返回第一个问题?
 @router.post("/sessions", response_model=QuestionResponse)
 async def create_session(request: CreateSessionRequest):
     """
@@ -184,7 +180,7 @@ async def create_session(request: CreateSessionRequest):
     evidence_bundle = await _prepare_session_evidence(request)
     session_evidence = evidence_bundle.get("evidence", [])
 
-    # 初始化状态
+    # 接口层准备业务上下文，图节点只负责本轮编排与生成。
     initial_state = {
         "session_id": session_id,
         "job_id": request.job_id,
@@ -210,7 +206,7 @@ async def create_session(request: CreateSessionRequest):
         "graph_action": "create"
     }
 
-    # 保存初始状态到 Redis（容错：Redis 不可用不阻塞会话创建）
+    # 先落初始状态，便于排查首问生成失败时的上下文。
     try:
         await interview_state_manager.save_state(session_id, initial_state)
     except Exception as e:
@@ -245,7 +241,6 @@ async def create_session(request: CreateSessionRequest):
         isComplete=False
     )
 
-# 获取当前面试会话状态和历史记录?
 @router.get("/sessions/{session_id}", response_model=Dict[str, Any])
 async def get_session(session_id: str):
     """
@@ -269,13 +264,11 @@ async def get_session(session_id: str):
         "behaviorScores": state.get("behavior_scores", {})
     }
 
-# 发送候选人消息并获取下一个问题或结束面试?
 @router.post("/sessions/{session_id}/message", response_model=QuestionResponse)
 async def send_message(session_id: str, request: SendMessageRequest):
     """
     发送候选人消息并获取下一个问题或结束面试
     """
-    # 加载当前状态
     state = await interview_state_manager.load_state(session_id)
     if not state:
         raise HTTPException(status_code=404, detail="未找到面试会话")
@@ -288,7 +281,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
             isComplete=True
         )
 
-    # 将候选人消息追加到历史（容错）
+    # 候选人回答先进入历史，图节点读取同一份对话窗口。
     try:
         await interview_state_manager.append_message(
             session_id,
@@ -298,7 +291,7 @@ async def send_message(session_id: str, request: SendMessageRequest):
     except Exception as e:
         print(f"[interview] append_message failed: {e}")
 
-    # 同步消息到 state（供报告生成使用）
+    # 刷新 state 中的消息快照，保证后续图节点读取最新上下文。
     try:
         history = await interview_state_manager.get_history(session_id)
         state["messages"] = history
@@ -416,7 +409,6 @@ async def send_message(session_id: str, request: SendMessageRequest):
         behaviorScores=state.get("behavior_scores", {})
     )
 
-# 结束面试并生成最终报告?
 @router.post("/sessions/{session_id}/end")
 async def end_session(session_id: str):
     """
@@ -426,7 +418,7 @@ async def end_session(session_id: str):
     if not state:
         raise HTTPException(status_code=404, detail="未找到面试会话")
 
-    # 确保消息历史是最新的
+    # 报告生成前同步最新历史和评分。
     try:
         history = await interview_state_manager.get_history(session_id)
         state["messages"] = history
@@ -444,7 +436,7 @@ async def end_session(session_id: str):
         print(f"[interview] LangGraph report generation failed: {e}")
         raise HTTPException(status_code=500, detail=f"LangGraph 报告生成失败: {str(e)}")
 
-    # 保存最终状态和报告
+    # 报告单独保存，支持后续独立查询。
     await interview_state_manager.save_state(session_id, result)
     await interview_state_manager.save_report(session_id, result.get("report_data", {}))
 
@@ -472,16 +464,14 @@ async def end_session(session_id: str):
         }
     }
 
-# 获取面试会话的报告?
 @router.get("/sessions/{session_id}/report", response_model=Dict[str, Any])
 async def get_report(session_id: str):
     """
     获取面试会话的报告
     """
-    # 尝试从 Redis 获取
+    # 优先读取独立报告键，兼容旧会话中保存在 state 的报告。
     report = await interview_state_manager.get_report(session_id)
     if not report:
-        # 尝试从保存的状态获取
         state = await interview_state_manager.load_state(session_id)
         if state:
             report = state.get("report_data", {})
@@ -489,7 +479,7 @@ async def get_report(session_id: str):
     if not report:
         raise HTTPException(status_code=404, detail="未找到面试报告")
 
-    # 同时返回各维度评分（直接从 Redis 独立 key 读取，不依赖 state）
+    # 评分以独立键为准，避免报告快照滞后。
     skill_scores = await interview_state_manager.get_skill_scores(session_id)
     behavior_scores = await interview_state_manager.get_behavior_scores(session_id)
 
@@ -512,7 +502,6 @@ async def get_report(session_id: str):
         "followUpBasis": report.get("followUpBasis", [])
     }
 
-# 恢复中断的面试会话?
 @router.post("/sessions/{session_id}/resume")
 async def resume_session(session_id: str):
     """
@@ -529,7 +518,6 @@ async def resume_session(session_id: str):
             "message": "此面试已完成"
         }
 
-    # 获取最后一个问题以便继续
     current_question = state.get("current_question")
     questions_asked = state.get("questions_asked", 0)
 
@@ -541,7 +529,6 @@ async def resume_session(session_id: str):
         "message": "会话已恢复，请从上次中断处继续"
     }
 
-# 获取面试会话状态，用于恢复功能?
 @router.get("/sessions/{session_id}/status")
 async def get_session_status(session_id: str):
     """

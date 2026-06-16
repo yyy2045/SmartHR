@@ -1,6 +1,4 @@
-"""
-面试状态机 - 基于 LangGraph 的多智能体面试编排
-"""
+"""LangGraph 面试编排：每次 HTTP 请求执行一个明确阶段。"""
 
 import json
 import re
@@ -13,7 +11,7 @@ from src.services.llm_service import llm_service
 
 
 class InterviewState(TypedDict, total=False):
-    """面试对话共享状态"""
+    """API 层和图节点共享的面试状态。"""
 
     session_id: str
     job_id: str
@@ -36,7 +34,7 @@ class InterviewState(TypedDict, total=False):
 
 
 def create_interview_graph():
-    """创建并编译面试状态机"""
+    """创建阶段式面试图。"""
     workflow = StateGraph(InterviewState)
 
     workflow.add_node("route", _route_node)
@@ -67,7 +65,7 @@ def create_interview_graph():
 
 
 def _route_node(state: InterviewState) -> InterviewState:
-    """为本次 API 请求计算图路由所需的阶段信息"""
+    """标准化本次请求的图动作和评分阶段。"""
     action = (state.get("graph_action") or "message").lower()
     state["graph_action"] = action
     state["turn_eval_type"] = _eval_type_for_questions(state.get("questions_asked", 0))
@@ -75,7 +73,7 @@ def _route_node(state: InterviewState) -> InterviewState:
 
 
 def _route_next_node(state: InterviewState) -> str:
-    """根据本次请求阶段选择下一个智能体节点"""
+    """按请求阶段选择入口节点。"""
     action = (state.get("graph_action") or "message").lower()
     if action == "create":
         return "main_interviewer"
@@ -87,7 +85,7 @@ def _route_next_node(state: InterviewState) -> str:
 
 
 def _main_interviewer_node(state: InterviewState) -> InterviewState:
-    """主面试官节点：生成首问或下一轮问题"""
+    """生成首问或下一轮追问。"""
     action = (state.get("graph_action") or "message").lower()
     state["current_agent"] = "MAIN"
     state["status"] = "IN_PROGRESS"
@@ -104,14 +102,14 @@ def _main_interviewer_node(state: InterviewState) -> InterviewState:
 
 
 def _skill_evaluator_node(state: InterviewState) -> InterviewState:
-    """技能评估节点：根据候选人最新回答更新技术评分"""
+    """更新技术维度评分。"""
     _evaluate_answer_into_state(state, "TECHNICAL")
     state["current_agent"] = "SKILL"
     return state
 
 
 def _behavior_analyzer_node(state: InterviewState) -> InterviewState:
-    """行为分析节点：根据候选人最新回答更新行为/经验评分"""
+    """更新行为或经验维度评分。"""
     eval_type = state.get("turn_eval_type") or "BEHAVIORAL"
     _evaluate_answer_into_state(state, eval_type if eval_type != "TECHNICAL" else "BEHAVIORAL")
     state["current_agent"] = "BEHAVIOR"
@@ -119,7 +117,7 @@ def _behavior_analyzer_node(state: InterviewState) -> InterviewState:
 
 
 def _report_generator_node(state: InterviewState) -> InterviewState:
-    """报告生成节点：交叉验证并生成最终报告"""
+    """生成最终面试报告。"""
     from src.agents.report_generator import ReportGeneratorAgent
 
     agent = ReportGeneratorAgent()
@@ -345,7 +343,7 @@ _interview_graph = None
 
 
 def get_interview_graph():
-    """获取或创建全局面试图实例"""
+    """复用已编译的图实例。"""
     global _interview_graph
     if _interview_graph is None:
         _interview_graph = create_interview_graph()
