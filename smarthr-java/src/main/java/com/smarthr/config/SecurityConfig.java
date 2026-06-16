@@ -21,6 +21,7 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -75,13 +76,30 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
         // 允许具体来源，不能用 * 当 withCredentials=true
-        configuration.setAllowedOriginPatterns(Arrays.asList("http://localhost:*", "http://127.0.0.1:*", "http://60.205.203.166"));
+        configuration.setAllowedOriginPatterns(corsAllowedOriginPatterns());
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);  // 允许携带凭证
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
         return source;
+    }
+
+    private List<String> corsAllowedOriginPatterns() {
+        String configured = System.getenv("CORS_ALLOWED_ORIGIN_PATTERNS");
+        if (configured != null && !configured.isBlank()) {
+            return Arrays.stream(configured.split(","))
+                    .map(String::trim)
+                    .filter(item -> !item.isEmpty())
+                    .toList();
+        }
+        return Arrays.asList(
+                "http://localhost:*",
+                "http://127.0.0.1:*",
+                "http://60.205.203.166",
+                "https://smarthr.top",
+                "https://www.smarthr.top"
+        );
     }
 
     @Bean
