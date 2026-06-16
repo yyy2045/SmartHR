@@ -62,18 +62,42 @@ public class InterviewService {
             throw new RuntimeException("jobId 和 resumeId 不能为空");
         }
 
+        Job job = jobRepository.findById(request.getJobId())
+                .orElseThrow(() -> new RuntimeException("岗位不存在: " + request.getJobId()));
+        Resume resume = resumeRepository.findById(request.getResumeId())
+                .orElseThrow(() -> new RuntimeException("简历不存在: " + request.getResumeId()));
+
+        if (resume.getJobId() == null) {
+            throw new RuntimeException("该简历未关联岗位，不能开始面试");
+        }
+        if (!resume.getJobId().equals(request.getJobId())) {
+            throw new RuntimeException("简历关联岗位与面试岗位不一致，请从正确的简历记录开始面试");
+        }
+        if (job.getCompanyId() != null && resume.getCompanyId() != null
+                && !job.getCompanyId().equals(resume.getCompanyId())) {
+            throw new RuntimeException("岗位与简历不属于同一公司，不能开始面试");
+        }
+        Long effectiveCompanyId = request.getCompanyId();
+        if (effectiveCompanyId == null) {
+            effectiveCompanyId = resume.getCompanyId() != null ? resume.getCompanyId() : job.getCompanyId();
+        }
+        if (effectiveCompanyId != null) {
+            if (job.getCompanyId() != null && !effectiveCompanyId.equals(job.getCompanyId())) {
+                throw new RuntimeException("请求公司与岗位所属公司不一致");
+            }
+            if (resume.getCompanyId() != null && !effectiveCompanyId.equals(resume.getCompanyId())) {
+                throw new RuntimeException("请求公司与简历所属公司不一致");
+            }
+        }
+
         // 自动从数据库补充 jobDescription / resumeText（前端通常只传 ID）
         String jobDescription = request.getJobDescription();
         if (jobDescription == null || jobDescription.isEmpty()) {
-            jobDescription = jobRepository.findById(request.getJobId())
-                    .map(this::buildJobDescription)
-                    .orElse("");
+            jobDescription = buildJobDescription(job);
         }
         String resumeText = request.getResumeText();
         if (resumeText == null || resumeText.isEmpty()) {
-            resumeText = resumeRepository.findById(request.getResumeId())
-                    .map(Resume::getRawText)
-                    .orElse("");
+            resumeText = resume.getRawText() != null ? resume.getRawText() : "";
         }
 
         String url = pythonServiceUrl + "/api/interview/sessions";
@@ -86,8 +110,8 @@ public class InterviewService {
         body.put("resume_id", request.getResumeId().toString());
         body.put("job_description", jobDescription);
         body.put("resume_text", resumeText);
-        if (request.getCompanyId() != null) {
-            body.put("company_id", request.getCompanyId().toString());
+        if (effectiveCompanyId != null) {
+            body.put("company_id", effectiveCompanyId.toString());
         }
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(body, headers);

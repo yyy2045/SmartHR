@@ -229,8 +229,12 @@ const uploadResume = async () => {
 }
 
 const viewMatch = async (row) => {
+  if (!row.jobId) {
+    ElMessage.warning('该简历未关联岗位，无法进行匹配')
+    return
+  }
   try {
-    const res = await matchResume(row.id, row.jobId || 1)
+    const res = await matchResume(row.id, row.jobId)
     matchResult.value = res
     row.matchScore = Math.round(res.matchScore || 0)
     row.status = 'MATCHED'
@@ -249,7 +253,11 @@ const formatPoint = (point) => {
 }
 
 const startInterview = (row) => {
-  router.push(`/interview?resumeId=${row.id}&jobId=${row.jobId || 1}`)
+  if (!row.jobId) {
+    ElMessage.warning('该简历未关联岗位，请先选择岗位后再开始面试')
+    return
+  }
+  router.push(`/interview?resumeId=${row.id}&jobId=${row.jobId}`)
 }
 
 const removeResume = async (row) => {

@@ -1,11 +1,14 @@
+# syntax=docker/dockerfile:1.7
 FROM python:3.12-slim
 
 WORKDIR /app
 
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn
+ARG PYTORCH_INDEX_URL=https://mirror.sjtu.edu.cn/pytorch-wheels/cpu
+ARG TORCH_VERSION=2.5.1+cpu
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
-ENV PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
+ENV PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn mirror.sjtu.edu.cn"
 ENV PIP_DEFAULT_TIMEOUT=180
 ENV PIP_RETRIES=10
 ENV DEBIAN_FRONTEND=noninteractive
@@ -21,7 +24,13 @@ RUN sed -i "s|http://deb.debian.org/debian|${APT_MIRROR}/debian|g; s|http://deb.
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --default-timeout=180 --retries=10 -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --default-timeout=180 --retries=10 \
+    --index-url ${PYTORCH_INDEX_URL} \
+    torch==${TORCH_VERSION}
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --default-timeout=180 --retries=10 -r requirements.txt
 
 # Copy source code
 COPY src ./src
