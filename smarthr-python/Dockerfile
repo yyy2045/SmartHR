@@ -6,7 +6,7 @@ WORKDIR /app
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 ARG APT_MIRROR=https://mirrors.tuna.tsinghua.edu.cn
 ARG PYTORCH_INDEX_URL=https://mirror.sjtu.edu.cn/pytorch-wheels/cpu
-ARG TORCH_VERSION=2.5.1+cpu
+ARG TORCH_VERSION=2.6.0+cpu
 ENV PIP_INDEX_URL=${PIP_INDEX_URL}
 ENV PIP_TRUSTED_HOST="pypi.tuna.tsinghua.edu.cn mirror.sjtu.edu.cn"
 ENV PIP_DEFAULT_TIMEOUT=180
