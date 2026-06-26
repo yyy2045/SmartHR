@@ -22,10 +22,12 @@ app = FastAPI(
 )
 
 # CORS 中间件
+# Python 服务仅由 Java 经 Docker 内网调用，不直接面向浏览器；默认不放行任何跨域来源，
+# 也不再使用 "*" + allow_credentials=True 的危险组合。如需放行，配置 PYTHON_CORS_ORIGINS。
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
