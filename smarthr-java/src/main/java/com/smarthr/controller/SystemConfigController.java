@@ -15,6 +15,7 @@ import com.smarthr.service.KnowledgeService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestTemplate;
 
@@ -54,7 +55,11 @@ public class SystemConfigController {
     private static final Map<String, Object> llmConfig = new HashMap<>();
     private static boolean llmConfigInitialized = false;
 
+    // 对外返回密钥时的脱敏占位，绝不回传明文 apiKey。
+    private static final String API_KEY_MASK = "********";
+
     @GetMapping("/llm")
+    @PreAuthorize("hasRole('ADMIN')")
     public UnifiedResponse<Map<String, Object>> getLlmConfig() {
         if (!llmConfigInitialized) {
             llmConfig.put("baseUrl", "https://api.deepseek.com");
@@ -62,13 +67,31 @@ public class SystemConfigController {
             llmConfig.put("apiKey", "");
             llmConfigInitialized = true;
         }
-        return UnifiedResponse.success(new HashMap<>(llmConfig));
+        return UnifiedResponse.success(maskedView());
     }
 
     @PostMapping("/llm")
+    @PreAuthorize("hasRole('ADMIN')")
     public UnifiedResponse<Map<String, Object>> saveLlmConfig(@RequestBody Map<String, Object> config) {
-        llmConfig.putAll(config);
-        return UnifiedResponse.success(new HashMap<>(llmConfig));
+        Map<String, Object> incoming = new HashMap<>(config);
+        // 前端回传脱敏占位或空值时，保留已存储的真实密钥，避免把密钥覆盖成掩码。
+        Object incomingKey = incoming.get("apiKey");
+        if (incomingKey == null || String.valueOf(incomingKey).isBlank()
+                || API_KEY_MASK.equals(String.valueOf(incomingKey))) {
+            incoming.remove("apiKey");
+        }
+        llmConfig.putAll(incoming);
+        return UnifiedResponse.success(maskedView());
+    }
+
+    // 构造脱敏后的配置视图：apiKey 不回传明文，仅返回是否已配置。
+    private Map<String, Object> maskedView() {
+        Map<String, Object> view = new HashMap<>(llmConfig);
+        Object apiKey = view.get("apiKey");
+        boolean configured = apiKey != null && !String.valueOf(apiKey).isBlank();
+        view.put("apiKey", configured ? API_KEY_MASK : "");
+        view.put("apiKeyConfigured", configured);
+        return view;
     }
 
     @PostMapping("/rag-index/rebuild")
