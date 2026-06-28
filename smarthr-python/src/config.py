@@ -20,6 +20,15 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8001
 
+    # CORS：Python 服务不直接面向浏览器（前端只经 Java 网关访问），默认不放行任何跨域来源。
+    # 如确需放行，用逗号分隔在 PYTHON_CORS_ORIGINS 中配置具体来源（不要使用 *）。
+    cors_allow_origins: str = os.getenv("PYTHON_CORS_ORIGINS", "")
+
+    @property
+    def cors_origin_list(self) -> list:
+        """将逗号分隔的 CORS 来源解析为列表（去空白、去空项）。"""
+        return [origin.strip() for origin in self.cors_allow_origins.split(",") if origin.strip()]
+
     # LLM 配置 - 统一接口
     llm_provider: str = os.getenv("LLM_PROVIDER", "deepseek")
     deepseek_api_key: str = os.getenv("DEEPSEEK_API_KEY", "")

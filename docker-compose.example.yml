@@ -85,8 +85,10 @@ services:
       CHROMA_PORT: 8000
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
-    ports:
-      - "8001:8001"
+    # Python AI 服务不映射公网端口：仅由 java-backend 通过 Docker 内网 (python-backend:8001) 访问，
+    # 避免外部直连无鉴权的 AI 接口。本机调试可临时用: docker compose exec 或单独加映射。
+    expose:
+      - "8001"
     depends_on:
       mysql:
         condition: service_healthy

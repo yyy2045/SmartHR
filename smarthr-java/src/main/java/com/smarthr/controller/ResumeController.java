@@ -9,6 +9,7 @@ import com.smarthr.entity.Resume;
 import com.smarthr.repository.ResumeRepository;
 import com.smarthr.service.ResumeAIService;
 import com.smarthr.service.UserService;
+import com.smarthr.util.FileUploadValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -57,6 +58,10 @@ public class ResumeController {
             @RequestParam(value = "candidateName", required = false) String candidateName,
             @RequestParam(value = "companyId", required = false) Long companyId,
             @AuthenticationPrincipal UserDetails user) {
+
+        // 落盘前校验文件类型（扩展名白名单 + 魔数），阻止伪装文件上传。
+        // 放在 try 之外，使校验失败时返回 400 而非被下方 catch 包成 500。
+        FileUploadValidator.validate(file, FileUploadValidator.RESUME_EXTENSIONS);
 
         try {
             // Create upload directory if not exists

@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smarthr.dto.*;
 import com.smarthr.entity.KnowledgeDocument;
 import com.smarthr.repository.KnowledgeDocumentRepository;
+import com.smarthr.util.FileUploadValidator;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -35,6 +36,9 @@ public class KnowledgeService {
     private final org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
 
     public KnowledgeDocumentDTO uploadDocument(MultipartFile file, String docType, Long companyId, String title) {
+        // 落盘前校验文件类型（扩展名白名单 + 魔数），阻止伪装文件上传。
+        FileUploadValidator.validate(file, FileUploadValidator.KNOWLEDGE_EXTENSIONS);
+
         // 1. Java generates UUID -贯穿 MySQL/Redis/Chroma 三层
         String documentId = UUID.randomUUID().toString();
 
